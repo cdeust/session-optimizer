@@ -152,6 +152,10 @@ Register the `Stop` hook (see `hooks/hooks.example.json`) in your plugin's
 `hooks/hooks.json` or in `~/.claude/settings.json`, pointing at the installed
 path. Requires Python 3.
 
+**Or install as a plugin.** This repo ships a `.claude-plugin/plugin.json`
+(v1.0.0) that wires the `Stop` guard automatically — add the repo as a
+marketplace and install it, no manual hook registration needed.
+
 ### Test
 
 ```bash
