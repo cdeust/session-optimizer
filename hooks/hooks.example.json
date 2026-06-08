@@ -1,0 +1,18 @@
+{
+  "//": "Example Claude Code hook registration for stop-context-guard.py.",
+  "//1": "Merge the Stop entry into your plugin's hooks/hooks.json or your",
+  "//2": "settings.json. ${CLAUDE_PLUGIN_ROOT} resolves to the plugin root when",
+  "//3": "shipped as a plugin; use an absolute path when wiring it into settings.json.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop-context-guard.py"
+          }
+        ]
+      }
+    ]
+  }
+}
