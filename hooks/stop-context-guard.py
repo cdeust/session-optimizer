@@ -48,6 +48,24 @@ WARN_HAIKU = 120_000     # Haiku 4.5 (200K context window — tighter checkpoint
 STATE_DIR = "/tmp"
 LEVEL_ORDER = {"none": 0, "warn": 1, "hard": 2}
 
+# --- Bounded reverse-tail read parameters ------------------------------------
+# Claude Code transcripts grow to 100MB–1GB in long sessions, and this hook
+# fires on every Stop. Reading the whole file (readlines) is O(file size) in
+# memory; we instead seek to the tail and scan backward.
+#
+# TAIL_CHUNK = 64 KiB (a power-of-two block multiple). Justification, measured
+# on a real 24.5MB transcript at
+#   ~/.claude/projects/-Users-cdeust-Developments-Cortex/<uuid>.jsonl :
+#   - the last assistant `usage` record was 7,591 bytes from EOF;
+#   - usage JSONL lines were min=1,016 / median=1,729 / max=32,769 bytes.
+# A single 64 KiB tail read covers the last-usage offset ~8.6x over and the
+# largest single usage line ~2x over, so one chunk suffices in practice.
+# The usage record is rewritten on every assistant turn, so it is always near
+# the end. Chunk-stepping with TAIL_MAX_BYTES is a hard safety bound, not a
+# tuning knob.
+TAIL_CHUNK = 64 * 1024          # 65536 bytes
+TAIL_MAX_BYTES = 4 * 1024 * 1024  # cap total bytes scanned at 4 MiB
+
 
 def _exit(payload=None):
     """Emit optional JSON to stdout and exit 0. A Stop hook must not fail hard."""
@@ -60,36 +78,100 @@ def _warn_threshold(model_id: str) -> int:
     return WARN_HAIKU if "haiku" in (model_id or "").lower() else WARN_DEFAULT
 
 
+def _usage_from_line(line: str):
+    """Parse one JSONL line; return (ctx, model) if it carries a positive
+    assistant usage record, else None. Pure, no I/O."""
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    msg = obj.get("message") or {}
+    usage = msg.get("usage")
+    if not usage:
+        return None
+    ctx = (
+        int(usage.get("input_tokens", 0) or 0)
+        + int(usage.get("cache_creation_input_tokens", 0) or 0)
+        + int(usage.get("cache_read_input_tokens", 0) or 0)
+    )
+    if ctx <= 0:
+        return None
+    return ctx, msg.get("model") or obj.get("model")
+
+
 def _read_last_usage(transcript_path: str):
     """Return (context_tokens, model_id) from the most recent assistant usage,
-    or (None, None) if unavailable. Scans from the end for efficiency."""
+    or (None, None) if unavailable.
+
+    Precondition:  transcript_path is a path string (or None).
+    Postcondition: returns (ctx, model) for the last line carrying a positive
+                   usage record within the scanned tail, else (None, None).
+                   On any missing/unreadable file or non-str path, returns
+                   (None, None) — identical to the previous readlines() contract.
+
+    Bounded reverse-tail read: seeks to max(0, size - TAIL_CHUNK) and scans the
+    tail backward, stepping back chunk by chunk until a usage record is found
+    or TAIL_MAX_BYTES have been scanned. Peak memory is O(TAIL_CHUNK), not
+    O(file size). Decoded as UTF-8 with errors='replace' so a chunk boundary
+    that splits a multi-byte sequence cannot raise.
+    """
     try:
-        with open(transcript_path, "r", encoding="utf-8") as fh:
-            lines = fh.readlines()
-    except (OSError, TypeError):
+        size = os.stat(transcript_path).st_size
+    except (OSError, TypeError, ValueError):
+        return None, None
+    if size == 0:
         return None, None
 
-    for line in reversed(lines):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        msg = obj.get("message") or {}
-        usage = msg.get("usage")
-        if not usage:
-            continue
-        ctx = (
-            int(usage.get("input_tokens", 0) or 0)
-            + int(usage.get("cache_creation_input_tokens", 0) or 0)
-            + int(usage.get("cache_read_input_tokens", 0) or 0)
-        )
-        if ctx <= 0:
-            continue
-        return ctx, msg.get("model") or obj.get("model")
-    return None, None
+    try:
+        fh = open(transcript_path, "rb")
+    except (OSError, TypeError, ValueError):
+        return None, None
+
+    try:
+        carry = ""          # bytes of a line split across the chunk boundary
+        pos = size          # exclusive high-water mark of bytes not yet read
+        scanned = 0
+        while pos > 0 and scanned < TAIL_MAX_BYTES:
+            read_size = min(TAIL_CHUNK, pos)
+            pos -= read_size
+            scanned += read_size
+            fh.seek(pos)
+            chunk = fh.read(read_size).decode("utf-8", errors="replace")
+            # Prepend; carry holds the partial line that started inside this chunk.
+            buf = chunk + carry
+            # If we have not reached the start of the file, the first segment of
+            # buf is a partial line (its true beginning is in an earlier chunk).
+            # Hold it back as carry and scan only the complete lines after it.
+            if pos > 0:
+                nl = buf.find("\n")
+                if nl == -1:
+                    # No newline in the whole window yet: keep accumulating,
+                    # but bound carry growth by the scan cap (handled by loop).
+                    carry = buf
+                    continue
+                carry = buf[:nl]
+                lines = buf[nl + 1:].split("\n")
+            else:
+                # Reached file start: buf begins at a real line boundary.
+                carry = ""
+                lines = buf.split("\n")
+            for line in reversed(lines):
+                hit = _usage_from_line(line)
+                if hit is not None:
+                    return hit
+        # Cap reached or whole file consumed; check any final carried line.
+        if carry:
+            hit = _usage_from_line(carry)
+            if hit is not None:
+                return hit
+        return None, None
+    except OSError:
+        return None, None
+    finally:
+        fh.close()
 
 
 def _git(cwd: str, *args: str) -> str:
