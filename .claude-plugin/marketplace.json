@@ -1,0 +1,35 @@
+{
+  "name": "session-optimizer-marketplace",
+  "owner": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools"
+  },
+  "metadata": {
+    "description": "Context-budget Stop guard + status line for long Claude Code sessions. Makes the per-model checkpoint protocol visible and self-enforcing.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "session-optimizer",
+      "source": "./",
+      "description": "Context-budget Stop guard + status line for long Claude Code sessions. Makes the per-model checkpoint protocol visible and self-enforcing.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Clement Deust",
+        "email": "admin@ai-architect.tools"
+      },
+      "homepage": "https://github.com/cdeust/session-optimizer",
+      "repository": "https://github.com/cdeust/session-optimizer",
+      "license": "MIT",
+      "keywords": [
+        "claude-code",
+        "context-window",
+        "token-budget",
+        "checkpoint",
+        "statusline",
+        "session-management"
+      ],
+      "category": "productivity"
+    }
+  ]
+}
