@@ -1,7 +1,7 @@
 {
   "name": "session-optimizer",
   "description": "Context-budget Stop guard + status line for long Claude Code sessions. Makes the per-model checkpoint protocol visible and self-enforcing.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Clement Deust",
     "email": "admin@ai-architect.tools"

@@ -3,11 +3,18 @@
 
 Contract (source of truth: agents/orchestrator.md <token-budget>):
 
-  | Model            | Checkpoint threshold | Session soft cap |
-  |------------------|----------------------|------------------|
-  | Opus 4.8         | ~180K                | 200K             |
-  | Sonnet 4.6       | ~180K                | 200K             |
-  | Haiku 4.5        | ~120K                | 200K (= window)  |
+  | Model              | Checkpoint (warn) | Hard cap (block) | Why                                  |
+  |--------------------|-------------------|------------------|--------------------------------------|
+  | Fable 5 / Mythos   | ~120K             | 160K             | 2x carrying rent + 2x resume penalty |
+  | Opus 4.x           | ~180K             | 200K             | cost discipline (window is 1M)       |
+  | Sonnet 4.6         | ~180K             | 200K             | cost discipline (window is 1M)       |
+  | Haiku 4.5          | ~120K             | 170K             | 200K IS the window; leave ~30K of    |
+  |                    |                   |                  | headroom for the checkpoint turn     |
+
+  Thresholds are loaded from ~/.claude/ctxguard-thresholds.json (shared with
+  the statusline so both layers stay on par by construction); the table above
+  is the embedded fallback when the config is absent or malformed. First
+  substring match against the lowercased model id wins.
 
   Context tokens are measured exactly as Claude Code's `used_percentage`:
       input_tokens + cache_creation_input_tokens + cache_read_input_tokens
@@ -41,9 +48,57 @@ import sys
 from datetime import datetime, timezone
 
 # --- Thresholds (tokens) -----------------------------------------------------
-HARD_CAP = 200_000
-WARN_DEFAULT = 180_000   # Opus 4.8 / Sonnet 4.6
-WARN_HAIKU = 120_000     # Haiku 4.5 (200K context window — tighter checkpoint)
+# Single source of truth shared with statusline-command.sh. First substring
+# match against the lowercased model id wins; "default" applies otherwise.
+CONFIG_PATH = os.path.join(
+    os.path.expanduser("~"), ".claude", "ctxguard-thresholds.json"
+)
+FALLBACK_THRESHOLDS = {
+    "models": [
+        {"match": "fable",  "warn": 120_000, "hard": 160_000},
+        {"match": "mythos", "warn": 120_000, "hard": 160_000},
+        {"match": "haiku",  "warn": 120_000, "hard": 170_000},
+        {"match": "sonnet", "warn": 180_000, "hard": 200_000},
+        {"match": "opus",   "warn": 180_000, "hard": 200_000},
+    ],
+    "default": {"warn": 180_000, "hard": 200_000},
+}
+
+
+def _thresholds(model_id: str):
+    """Return (warn, hard) for the model. Non-fatal: any config problem falls
+    back to FALLBACK_THRESHOLDS; any malformed entry is skipped.
+
+    Precondition:  model_id is a string or None.
+    Postcondition: warn < hard, both positive ints.
+    """
+    table = FALLBACK_THRESHOLDS
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+            loaded = json.load(fh)
+        if isinstance(loaded, dict) and isinstance(loaded.get("models"), list):
+            table = loaded
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+
+    mid = (model_id or "").lower()
+    chosen = table.get("default") or FALLBACK_THRESHOLDS["default"]
+    for entry in table.get("models", []):
+        try:
+            if entry["match"] in mid:
+                chosen = entry
+                break
+        except (KeyError, TypeError):
+            continue
+    try:
+        warn, hard = int(chosen["warn"]), int(chosen["hard"])
+        if 0 < warn < hard:
+            return warn, hard
+    except (KeyError, TypeError, ValueError):
+        pass
+    d = FALLBACK_THRESHOLDS["default"]
+    return d["warn"], d["hard"]
+
 
 STATE_DIR = "/tmp"
 LEVEL_ORDER = {"none": 0, "warn": 1, "hard": 2}
@@ -72,10 +127,6 @@ def _exit(payload=None):
     if payload:
         sys.stdout.write(json.dumps(payload))
     sys.exit(0)
-
-
-def _warn_threshold(model_id: str) -> int:
-    return WARN_HAIKU if "haiku" in (model_id or "").lower() else WARN_DEFAULT
 
 
 def _usage_from_line(line: str):
@@ -250,9 +301,10 @@ def _save_level(session_id: str, level: str) -> None:
         pass
 
 
-def _block_reason(ctx: int, stub_path: str) -> str:
+def _block_reason(ctx: int, stub_path: str, hard: int) -> str:
     return (
-        f"⚠ CONTEXT SOFT CAP REACHED — {ctx:,} input tokens (≥ 200K session budget).\n"
+        f"⚠ CONTEXT SOFT CAP REACHED — {ctx:,} input tokens "
+        f"(≥ {hard:,} session budget for this model).\n"
         f"Continuing in this session now risks context poisoning, quota burn, and "
         f"escalating per-turn cost. Execute the checkpoint protocol before yielding:\n\n"
         f"1. Write your scoped semantic checkpoint with the memory tool, e.g.:\n"
@@ -291,8 +343,8 @@ def main():
     if ctx is None:
         _exit()
 
-    warn = _warn_threshold(model_id)
-    if ctx >= HARD_CAP:
+    warn, hard = _thresholds(model_id)
+    if ctx >= hard:
         level = "hard"
     elif ctx >= warn:
         level = "warn"
@@ -310,10 +362,11 @@ def main():
     if level == "hard":
         _exit({
             "decision": "block",
-            "reason": _block_reason(ctx, stub_path),
+            "reason": _block_reason(ctx, stub_path, hard),
             "systemMessage": (
-                f"[context-guard] {ctx:,} tokens ≥ 200K soft cap — forcing a "
-                f"checkpoint before the session continues."
+                f"[context-guard] {ctx:,} tokens ≥ {hard:,} soft cap "
+                f"({model_id or 'model'}) — forcing a checkpoint before the "
+                f"session continues."
             ),
         })
     else:  # warn — non-blocking nudge, no model tokens spent
@@ -321,7 +374,7 @@ def main():
             "systemMessage": (
                 f"[context-guard] {ctx:,} tokens ≥ {warn:,} checkpoint threshold "
                 f"({(model_id or 'model')}). Mechanical state saved to {stub_path or 'n/a'}. "
-                f"Plan to checkpoint and start a fresh session soon; hard stop at 200K."
+                f"Plan to checkpoint and start a fresh session soon; hard stop at {hard:,}."
             )
         })
 

@@ -1,0 +1,11 @@
+{
+  "_comment": "Single source of truth for context checkpoint thresholds. Consumed by stop-context-guard.py (active enforcement) and statusline-command.sh (passive display). First substring match against the lowercased model id / display name wins. warn = checkpoint threshold; hard = soft cap (block + save + recall). Rationale: Fable/Mythos pay 2x Opus rates, so carrying rent (~$0.10 per 100K per turn) and the 5-min cache-expiry resume penalty (1.25x rewrite of the whole context) bite twice as hard — checkpoint earlier. Haiku's window IS 200K, so the hard cap must leave headroom for the checkpoint turn itself. Install at ~/.claude/ctxguard-thresholds.json",
+  "models": [
+    { "match": "fable",  "warn": 120000, "hard": 160000 },
+    { "match": "mythos", "warn": 120000, "hard": 160000 },
+    { "match": "haiku",  "warn": 120000, "hard": 170000 },
+    { "match": "sonnet", "warn": 180000, "hard": 200000 },
+    { "match": "opus",   "warn": 180000, "hard": 200000 }
+  ],
+  "default": { "warn": 180000, "hard": 200000 }
+}

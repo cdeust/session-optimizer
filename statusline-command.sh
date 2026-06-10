@@ -4,10 +4,15 @@
 # Line 1: [model] [effort] · dir · git:(branch)✗ · ⎇worktree · PR#n
 # Line 2: ▓▓▓░░░░░░░ ctx:N% tokens:Nk · $cost · ⏱duration · 5h:N% 7d:N% · +adds/-dels
 #
-# Context/token color tracks the 200K "checkpoint" threshold (orchestrator rule):
-#   < 100K  green   — healthy
-#   100-200K yellow  — getting full, plan a save
-#   >= 200K red ⚠   — save memory + start fresh with a recall (200K of 1M used)
+# Context/token color tracks the per-model checkpoint thresholds (orchestrator
+# rule, shared with stop-context-guard.py via ~/.claude/ctxguard-thresholds.json):
+#   Fable 5 / Mythos : warn 120K, save 160K  (2x rent + 2x cache-expiry penalty)
+#   Opus 4.x         : warn 180K, save 200K  (cost discipline; window is 1M)
+#   Sonnet 4.6       : warn 180K, save 200K  (cost discipline; window is 1M)
+#   Haiku 4.5        : warn 120K, save 170K  (200K IS the window; keep headroom)
+#   < warn   green   — healthy
+#   >= warn  yellow  — getting full, plan a save
+#   >= save  red ⚠   — save memory + start fresh with a recall
 #
 # No DIM attribute anywhere — it renders unreadable on black terminals.
 # Secondary text uses light grey; primary uses bright white.
@@ -64,15 +69,39 @@ MAGENTA="\033[38;2;205;150;220m"
 SEP="${LGREY}·${RESET}"
 
 # --- Checkpoint thresholds (tokens of input context) ---
-# Authoritative per-model table from agents/orchestrator.md <token-budget>:
-#   Opus 4.8 / Sonnet 4.6 : checkpoint ~180K, session soft cap 200K (1M window)
-#   Haiku 4.5             : checkpoint ~120K, hard limit 200K (= context window)
+# Single source of truth: ~/.claude/ctxguard-thresholds.json (shared with the
+# stop-context-guard.py hook so passive display and active enforcement cannot
+# drift). The case block below is the embedded fallback and MUST mirror the
+# hook's FALLBACK_THRESHOLDS table. First substring match wins.
 # WARN = checkpoint threshold (save now); SAVE = soft cap (save + recall, fresh session).
-case "$model" in
-  *Haiku*) WARN_TOKENS=120000 ;;
-  *)       WARN_TOKENS=180000 ;;
-esac
-SAVE_TOKENS=200000
+CTXGUARD_CONFIG="${HOME}/.claude/ctxguard-thresholds.json"
+model_lc=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')
+
+WARN_TOKENS=""
+SAVE_TOKENS=""
+if [ -r "$CTXGUARD_CONFIG" ]; then
+  # First entry whose .match is a substring of the lowercased display name;
+  # falls back to .default. Emits "warn save" or nothing on any jq failure.
+  read -r WARN_TOKENS SAVE_TOKENS < <(
+    jq -r --arg m "$model_lc" '
+      ( [ .models[]? | select(.match != null)
+          | select(.match as $p | $m | contains($p)) ][0]
+        // .default // empty )
+      | select(.warn != null and .hard != null)
+      | "\(.warn) \(.hard)"
+    ' "$CTXGUARD_CONFIG" 2>/dev/null
+  ) || true
+fi
+case "$WARN_TOKENS" in ''|*[!0-9]*) WARN_TOKENS="" ;; esac
+case "$SAVE_TOKENS" in ''|*[!0-9]*) SAVE_TOKENS="" ;; esac
+
+if [ -z "$WARN_TOKENS" ] || [ -z "$SAVE_TOKENS" ]; then
+  case "$model_lc" in
+    *fable*|*mythos*) WARN_TOKENS=120000; SAVE_TOKENS=160000 ;;
+    *haiku*)          WARN_TOKENS=120000; SAVE_TOKENS=170000 ;;
+    *)                WARN_TOKENS=180000; SAVE_TOKENS=200000 ;;
+  esac
+fi
 
 # pick color for a given token count
 token_color() {
