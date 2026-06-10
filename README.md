@@ -117,8 +117,8 @@ transcript and enforces the budget:
 | Level | Trigger | Action |
 |---|---|---|
 | below WARN | `ctx < threshold` | nothing — silent, no side effects |
-| **WARN** | `ctx ≥ 180K` (120K Haiku) | captures **mechanical state for free** (date, model, token count, branch, last commit, modified files) to `~/.claude/memories/checkpoints/{session_id,latest}.md`, and emits a one-time non-blocking `systemMessage`. **Never blocks — zero model tokens.** |
-| **HARD** | `ctx ≥ 200K` | captures state **and blocks the stop exactly once**, injecting the checkpoint-finalize procedure so the model writes a durable semantic checkpoint and signals you to `/clear` + resume via recall. |
+| **WARN** | `ctx ≥ 180K` (120K Haiku) | captures **mechanical state for free** (date, model, token count, branch, last commit, modified files) as a summary-schema stub at `~/.claude/memories/checkpoints/{session_id,latest}.md`, and **blocks the stop exactly once as a reflection pause**: the model distills the session and hands the summary to the `memory-writer` subagent, which merges it into the stub — then the session **continues**. |
+| **HARD** | `ctx ≥ 200K` | captures state **and blocks the stop exactly once**, injecting the checkpoint-finalize procedure so the model completes the checkpoint file (normally a formality — the WARN reflection already wrote it) and signals you to `/clear` + resume from the checkpoint. |
 
 ### Safety properties
 
@@ -129,24 +129,46 @@ transcript and enforces the budget:
 - The status line is the passive visual warning; this hook is the active
   enforcement layer.
 
-### Zetetic integration
+### The memory-writer subagent
 
-This hook is wired for the
-[`zetetic-team-subagents`](https://github.com/cdeust/zetetic-team-subagents)
-ecosystem: the HARD-level block instructs the model to checkpoint via
-`tools/memory-tool.sh` into a scoped `/memories/<scope>/checkpoint.md` and to
-persist decisions with `cortex:remember`. The **mechanical WARN capture is
-self-contained** and works in any Claude Code session; only the HARD-block
-*instructions* reference those tools. Adapt `_block_reason()` if you use a
-different memory backend.
+The checkpoint itself is written by a **normal Claude Code subagent** —
+`agents/memory-writer.md`, in the standard format produced by the `/agents`
+create flow (frontmatter: `name`, `description`, `tools`, `model`; body =
+system prompt). The pair follows the
+[letta](https://github.com/letta-ai/letta) sleeptime pattern: a primary agent
+plus a budgeted memory-manager agent that operates **on the memory store**
+with memory verbs, on a cheap model (Haiku). The parent session distills its
+own state into the summary schema (goals / file references / errors and fixes
+/ current state / next steps, ≤500 words) — spending its expensive context
+once on distillation, never on persistence plumbing — and the memory-writer
+persists it. It writes exactly what it is given and never invents content.
+
+Persistence is layered, primary first:
+
+1. **Scoped memory store** (the [`zetetic-team-subagents`](https://github.com/cdeust/zetetic-team-subagents)
+   memory layer): `memory-tool.sh rethink /memories/<scope>/checkpoint.md`
+   for the checkpoint, plus one `cortex:remember` entry per durable WHY-level
+   fact (decisions, rejected approaches, lessons), agent_topic-scoped.
+2. **Stub-file fallback**: with no memory layer installed, the agent fills
+   the hook's mechanical stub in place under
+   `~/.claude/memories/checkpoints/` and mirrors it to `latest.md`. The hook
+   never blocks on the memory layer's absence — graceful degradation, not a
+   dependency.
 
 ### Install
 
 ```bash
-mkdir -p ~/.claude/hooks
+mkdir -p ~/.claude/hooks ~/.claude/agents
 cp hooks/stop-context-guard.py ~/.claude/hooks/stop-context-guard.py
 chmod +x ~/.claude/hooks/stop-context-guard.py
+cp agents/memory-writer.md ~/.claude/agents/memory-writer.md
 ```
+
+(Equivalently, create the `memory-writer` agent interactively with `/agents`
+— new agent, name `memory-writer`, tools `Read, Write, Edit`, model Haiku —
+and paste the body of `agents/memory-writer.md` as its system prompt. The
+hook only needs an agent with that name to exist; it spawns it through the
+native Agent tool like any other subagent.)
 
 Register the `Stop` hook (see `hooks/hooks.example.json`) in your plugin's
 `hooks/hooks.json` or in `~/.claude/settings.json`, pointing at the installed
