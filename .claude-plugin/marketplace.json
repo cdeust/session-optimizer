@@ -29,7 +29,12 @@
         "statusline",
         "session-management"
       ],
-      "category": "productivity"
+      "category": "productivity",
+      "runtime": [
+        "cli",
+        "cowork"
+      ],
+      "runtime_notes": "Hooks (Stop guard, refine gate) and the statusline run wherever Claude Code plugins run: CLI, desktop app, IDE extensions, and Cowork. The claude.ai chat / Claude Desktop chat surface has no hook mechanism - there, upload skills/refine/ as an Agent Skill (same SKILL.md format): the /refine procedure travels, the automatic per-prompt gate does not."
     }
   ]
 }

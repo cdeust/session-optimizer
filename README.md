@@ -233,6 +233,39 @@ Expected: a `hookSpecificOutput.additionalContext` payload carrying the
 binding instruction. A grounded prompt (one naming a real file path)
 produces no output.
 
+### Token-usage ledger (measured, reproducible)
+
+The gate must not eat the budget it exists to protect. Two instruments
+keep that honest:
+
+* `tests/test_refine_gate.py` pins the contract: silent prompts cost
+  ZERO context, and any injection stays under a 400-token ceiling
+  (estimated at 4 chars/token — Anthropic's glossary gives ~3.5
+  chars/token EN, so the estimate under-counts ~12%; the ceiling has
+  >10x headroom over the current ~275).
+* `tools/measure_refine_overhead.py` replays your OWN prompt history
+  (local transcripts, nothing leaves the machine). Measured 2026-06-12
+  on 117 real prompts across 40 transcripts: fired on 38% (tier 1: 17,
+  tier 2: 27, silent: 73), ~275 est. tokens per fired prompt, ~103 per
+  prompt overall ≈ **1.3% of a 160k-token session budget per 20-prompt
+  session**.
+
+The benefit side is counterfactual and is NOT claimed as measured: a
+mis-bound prompt costs roughly a full wrong-direction session
+(~10⁵ tokens — e.g. the delivery-layer machinery this gate's design
+case produced and later deleted). At ~2k injected tokens per
+20-prompt session, the gate breaks even if it prevents one mis-binding
+per ~80 sessions.
+
+### Where it runs
+
+Hooks and statusline run wherever Claude Code plugins run: **CLI,
+desktop app, IDE extensions, and Cowork** (declared `runtime:
+["cli", "cowork"]`). The claude.ai / Claude Desktop **chat** surface
+has no hook mechanism — there, upload `skills/refine/` as an Agent
+Skill (same SKILL.md format): the `/refine` procedure travels; the
+automatic per-prompt gate does not.
+
 ---
 
 ## License
