@@ -191,6 +191,50 @@ Expected: a `decision: block` payload with the checkpoint procedure.
 
 ---
 
+## 3. Refine gate (`hooks/refine_gate.py` + `skills/refine/`)
+
+Communication failures cost more than code failures: "make it work
+exactly like the SSE solution" carries precise intent that the model
+can bind to the wrong artifact and then build the wrong thing —
+correctly. The refine gate makes that binding explicit and cheap to
+correct BEFORE work starts.
+
+A `UserPromptSubmit` hook inspects every prompt on two tiers:
+
+* **Tier 1 — reference markers**: prior-artifact shorthand ("the last
+  release"), comparisons to unstated referents ("like before",
+  "exactly as"), repeat-failure phrasing ("still broken", "back to
+  square one") → inject the full binding-table instruction.
+* **Tier 2 — ungrounded work request**: the prompt asks for work
+  (fix/build/improve/problem/…) but contains no concrete anchor — no
+  file path, commit sha, or line ref. Named systems/variables ("the
+  memory system", "the heat variable") must then be bound to their
+  actual code artifacts before reasoning. Prompts the user grounded
+  themselves pass through untouched. Slash commands are never gated;
+  the hook always exits 0 (it can inform, never block).
+
+The injected instruction points at the bundled `/refine` skill: build
+a binding table (reference → artifact, with evidence), separate
+symptom from goal, select an execution strategy from a research-backed
+table (15 strategies re-verified against the 2024–2026 literature,
+counter-evidence included — e.g. intrinsic self-correction degrades
+reasoning, arXiv:2310.01798; CoT prompting is marginal on reasoning
+models), and define acceptance criteria as EXTERNAL signals: run the
+test, fetch the source, measure — never the model re-checking itself.
+
+Test it directly:
+
+```bash
+echo '{"prompt":"there is a problem in the memory system with the heat variable"}' \
+  | python3 hooks/refine_gate.py | python3 -m json.tool
+```
+
+Expected: a `hookSpecificOutput.additionalContext` payload carrying the
+binding instruction. A grounded prompt (one naming a real file path)
+produces no output.
+
+---
+
 ## License
 
 [MIT](LICENSE) © Clement Deust

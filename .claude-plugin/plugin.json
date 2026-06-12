@@ -1,7 +1,7 @@
 {
   "name": "session-optimizer",
-  "description": "Context-budget Stop guard + status line for long Claude Code sessions. Makes the per-model checkpoint protocol visible and self-enforcing.",
-  "version": "1.2.0",
+  "description": "Session optimizer for long Claude Code sessions: context-budget Stop guard + status line (per-model checkpoint protocol), and a refine gate — a UserPromptSubmit hook + /refine skill that bind vague prompt references to concrete artifacts and select a research-backed execution strategy before any code is touched.",
+  "version": "1.3.0",
   "author": {
     "name": "Clement Deust",
     "email": "admin@ai-architect.tools"
@@ -15,7 +15,10 @@
     "token-budget",
     "checkpoint",
     "statusline",
-    "session-management"
+    "session-management",
+    "prompt-engineering",
+    "refine",
+    "intent-binding"
   ],
   "hooks": {
     "Stop": [
@@ -25,6 +28,18 @@
             "type": "command",
             "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop-context-guard.py",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/refine_gate.py",
+            "timeout": 5,
+            "statusMessage": "refine gate: checking for unbound references"
           }
         ]
       }
