@@ -1,0 +1,7 @@
+{
+  "_comment": "Les jauges 'target' 🎯 suivent désormais les quotas de rate-limit Pro/Max (fenêtres 5h + 7j) fournis par Claude Code — la vraie contrainte 'ne pas dépasser'. Plus aucun budget mensuel absolu à régler ici.",
+  "_size": "Verbosité de la statusline : xs (1 ligne) | s (2) | m (3) | l (défaut) | xl (barres larges). Surchargeable par la variable d'env STATUSLINE_SIZE.",
+  "_cache_ttl_min": "Durée de vie du cache de prompt pour le compte à rebours ❄ : 5 (défaut Pro) ou 60 (Max). Source : docs.anthropic.com prompt-caching (TTL 5 min par défaut).",
+  "cache_ttl_min": 5,
+  "size": "l"
+}
