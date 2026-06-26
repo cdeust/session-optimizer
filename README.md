@@ -191,7 +191,73 @@ Expected: a `decision: block` payload with the checkpoint procedure.
 
 ---
 
-## 3. Refine gate (`hooks/refine_gate.py` + `skills/refine/`)
+## 3. Subagent usage tracker (`hooks/subagent-tracker.py` + `tools/subagent_usage.py`)
+
+The status line input and the Stop guard only see the **main thread**. Work done
+by Task-tool subagents is logged as separate per-agent transcripts that a
+parent-only reader never sees — the documented gap in
+[anthropics/claude-code#32175](https://github.com/anthropics/claude-code/issues/32175)
+and [ryoppippi/ccusage#313](https://github.com/ryoppippi/ccusage/issues/313).
+On disk (verified layout):
+
+```
+~/.claude/projects/<encoded-cwd>/<session-id>.jsonl                 # main thread
+~/.claude/projects/<encoded-cwd>/<session-id>/subagents/
+    agent-<agentId>.jsonl                                           # subagent turns (isSidechain:true)
+    agent-<agentId>.meta.json  -> {agentType, description, toolUseId}
+    workflows/wf_*/agent-*.jsonl                                    # workflow subagents
+```
+
+Three layers recover that data:
+
+- **`SubagentStop` hook** (`hooks/subagent-tracker.py`) — parses each finishing
+  subagent's transcript (deduped by `message.id`, billed per the record's own
+  `message.model`, cache split by TTL), reads the sibling `.meta.json` for
+  `agentType`/`description`, and folds it into a per-session aggregate at
+  `/tmp/zetetic-subagents-<session_id>.json` (keyed by `agentId`, so re-firing
+  updates rather than double-counts).
+- **Status line** — reads that aggregate and shows `🤖N · tokens · $cost` so
+  live subagent spend is visible alongside the main thread.
+- **Stop guard** — surfaces cumulative session spend (main + subagents) in the
+  checkpoint message and stub. The context-window *decision* stays
+  main-thread-only (mixing in subagent tokens would mis-trigger checkpoints);
+  only the reported figure is enriched.
+
+### Pricing (sourced)
+
+Token cost uses Anthropic's published per-MTok rates and cache multipliers
+(Opus 4.8 $5/$25, Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5, Fable 5 $10/$50; cache
+write 1.25× input at 5m / 2× at 1h, cache read 0.1×). Every constant cites its
+source at the use site in `tools/subagent_usage.py`.
+
+### Retrospective report
+
+`tools/subagent_usage.py` doubles as a CLI that parses **all** subagent
+transcripts across a project and reports cost grouped by `agent_type`:
+
+```bash
+python3 tools/subagent_usage.py [/path/to/project]   # human table
+python3 tools/subagent_usage.py --json               # machine-readable
+```
+
+### Install
+
+Add the `SubagentStop` entry from `hooks/hooks.json` (or the plugin's
+`plugin.json`) to your settings; `subagent-tracker.py` imports the shared core
+from the sibling `tools/` directory, so keep them under the same plugin root.
+
+### Test
+
+```bash
+SID="demo-$(date +%s)"
+echo '{"session_id":"'"$SID"'","transcript_path":"<a real agent-*.jsonl path>","cwd":"'"$PWD"'"}' \
+  | python3 hooks/subagent-tracker.py
+cat "/tmp/zetetic-subagents-$SID.json" | python3 -m json.tool
+```
+
+---
+
+## 4. Refine gate (`hooks/refine_gate.py` + `skills/refine/`)
 
 Communication failures cost more than code failures: "make it work
 exactly like the SSE solution" carries precise intent that the model

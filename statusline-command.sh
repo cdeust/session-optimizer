@@ -37,6 +37,25 @@ dels=$(j '.cost.total_lines_removed // 0')
 rl_5h=$(j '.rate_limits.five_hour.used_percentage // empty')
 rl_7d=$(j '.rate_limits.seven_day.used_percentage // empty')
 
+# --- Subagent spend (from the SubagentStop tracker; not in the statusline
+#     input, so read the per-session aggregate the hook maintains) ---
+session_id=$(j '.session_id // empty')
+sub_count=""
+sub_tokens=""
+sub_cost=""
+if [ -n "$session_id" ]; then
+  SUB_STATE="/tmp/zetetic-subagents-${session_id}.json"
+  if [ -r "$SUB_STATE" ]; then
+    read -r sub_count sub_tokens sub_cost < <(
+      jq -r '.totals as $t
+             | "\($t.count // 0) "
+             + "\(((($t.input_tokens // 0) + ($t.output_tokens // 0) + ($t.cache_tokens // 0)))) "
+             + "\($t.cost_usd // 0)"' "$SUB_STATE" 2>/dev/null
+    ) || true
+    case "$sub_count" in ''|0|*[!0-9]*) sub_count="" ;; esac
+  fi
+fi
+
 # --- PR / worktree ---
 pr_num=$(j '.pr.number // empty')
 pr_state=$(j '.pr.review_state // empty')
@@ -206,6 +225,19 @@ fi
 
 if [ "$adds" -gt 0 ] || [ "$dels" -gt 0 ]; then
   line2="${line2:+$line2 ${SEP} }${GREEN}+${adds}${RESET}${LGREY}/${RESET}${RED}-${dels}${RESET}"
+fi
+
+# Subagents: count · tokens · cost — surfaces work the statusline input omits.
+if [ -n "$sub_count" ]; then
+  sub_seg="${MAGENTA}🤖${sub_count}${RESET}"
+  if [ -n "$sub_tokens" ] && [ "$sub_tokens" -gt 0 ] 2>/dev/null; then
+    sub_seg="${sub_seg} ${LGREY}$(fmt_tokens "$sub_tokens")${RESET}"
+  fi
+  if [ -n "$sub_cost" ]; then
+    sub_cost_fmt=$(LC_NUMERIC=C awk "BEGIN{printf \"%.2f\",$sub_cost}" 2>/dev/null)
+    [ -n "$sub_cost_fmt" ] && sub_seg="${sub_seg} ${YELLOW}${DOLLAR}${sub_cost_fmt}${RESET}"
+  fi
+  line2="${line2:+$line2 ${SEP} }${sub_seg}"
 fi
 
 # --- Emit (%b interprets ANSI escapes; data is in args, not the format) ---

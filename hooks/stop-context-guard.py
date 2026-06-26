@@ -243,6 +243,40 @@ def _read_last_usage(transcript_path: str):
         fh.close()
 
 
+def _subagent_summary(session_id: str):
+    """Read the per-session subagent aggregate maintained by subagent-tracker.py.
+
+    Returns (count, tokens, cost_usd) for this session's subagent spend, or
+    (0, 0, 0.0) if no aggregate exists. This is the cumulative spend the main
+    thread's context-window measurement structurally cannot see — surfaced in
+    the checkpoint message and stub so the operator sees true session cost.
+
+    Non-fatal: any read/parse problem returns zeros.
+    """
+    path = os.path.join("/tmp", f"zetetic-subagents-{session_id}.json")
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            totals = (json.load(fh) or {}).get("totals") or {}
+    except (OSError, json.JSONDecodeError, ValueError):
+        return 0, 0, 0.0
+    count = int(totals.get("count", 0) or 0)
+    tokens = (int(totals.get("input_tokens", 0) or 0)
+              + int(totals.get("output_tokens", 0) or 0)
+              + int(totals.get("cache_tokens", 0) or 0))
+    cost = float(totals.get("cost_usd", 0.0) or 0.0)
+    return count, tokens, cost
+
+
+def _subagent_line(session_id: str) -> str:
+    """One-line subagent-spend note for checkpoint messages, or '' if none."""
+    count, tokens, cost = _subagent_summary(session_id)
+    if count <= 0:
+        return ""
+    return (f"\nSubagent spend this session (not in the main-thread context "
+            f"measure above): {count} runs, ~{tokens:,} billed tokens, "
+            f"~${cost:.2f}.")
+
+
 def _git(cwd: str, *args: str) -> str:
     try:
         out = subprocess.run(
@@ -266,6 +300,12 @@ def _write_stub(session_id: str, cwd: str, ctx: int, model_id: str, level: str) 
     last_commit = _git(cwd, "log", "-1", "--oneline")
     modified = _git(cwd, "status", "--porcelain")
     iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    sub_count, sub_tokens, sub_cost = _subagent_summary(session_id)
+    sub_state = (
+        f"- subagent spend: {sub_count} runs · ~{sub_tokens:,} billed tokens · "
+        f"~${sub_cost:.2f} (separate from the context tokens above)\n"
+        if sub_count > 0 else ""
+    )
 
     stub = f"""---
 description: "Auto-checkpoint ({level}) at {ctx:,} tokens — session {session_id[:8]} on {branch or 'unknown branch'}"
@@ -293,7 +333,7 @@ replace with the load-bearing files and add `path:start-end` line ranges)
 - model: {model_id or 'unknown'} · context tokens at trigger: {ctx:,}
 - working dir: {cwd}
 - branch: {branch or '(unknown)'} · last commit: {last_commit or '(none)'}
-<to be filled: one paragraph — where the work stands right now>
+{sub_state}<to be filled: one paragraph — where the work stands right now>
 
 ### Next steps
 <to be filled: exact ordered actions for the resumed session; first one must be
@@ -426,26 +466,27 @@ def main():
 
     stub_path = _write_stub(session_id, cwd, ctx, model_id, level)
     _save_level(session_id, level)
+    sub_line = _subagent_line(session_id)
 
     if level == "hard":
         _exit({
             "decision": "block",
-            "reason": _block_reason(ctx, stub_path, hard),
+            "reason": _block_reason(ctx, stub_path, hard) + sub_line,
             "systemMessage": (
                 f"[context-guard] {ctx:,} tokens ≥ {hard:,} soft cap "
                 f"({model_id or 'model'}) — forcing a checkpoint before the "
-                f"session continues."
+                f"session continues." + sub_line
             ),
         })
     else:  # warn — one-time reflection block: persist memory while headroom remains
         _exit({
             "decision": "block",
-            "reason": _warn_reason(ctx, stub_path, warn, hard),
+            "reason": _warn_reason(ctx, stub_path, warn, hard) + sub_line,
             "systemMessage": (
                 f"[context-guard] {ctx:,} tokens ≥ {warn:,} checkpoint threshold "
                 f"({(model_id or 'model')}) — spawning the memory-writer subagent to "
                 f"persist the semantic checkpoint, then the session continues. "
-                f"Mechanical stub: {stub_path or 'n/a'}. Hard stop at {hard:,}."
+                f"Mechanical stub: {stub_path or 'n/a'}. Hard stop at {hard:,}." + sub_line
             ),
         })
 
