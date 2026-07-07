@@ -1,5 +1,7 @@
 # session-optimizer
 
+<p align="center"><img src="assets/banner.svg" alt="session-optimizer — a visible, enforced context budget for long Claude Code sessions" width="100%"/></p>
+
 Two small, dependency-light tools for keeping long [Claude Code](https://code.claude.com)
 sessions **readable, cheap, and un-poisoned**:
 
