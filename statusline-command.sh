@@ -220,22 +220,26 @@ case "$SIZE" in
   xl) RANK=4; CTX_W=16; BW=20 ;;
 esac
 
-# --- Colors: Catppuccin Mocha palette (high-contrast on dark; no DIM) ---
-# source: https://github.com/catppuccin/catppuccin — Mocha flavour hex values.
+# --- Colors: AI Architect DS — ink (instrument) surface palette (no DIM) ---
+# source: AI Architect Design System tokens/colors.css (:root ink-surface
+# primitives), each oklch value converted with CSS Color 4 math (scripted
+# oklch->srgb). Chrome is the warm-neutral fg scale; status = ok/warn/danger;
+# the one accent is terracotta; remaining hues come from the stage/valence
+# data families so no two semantically-different segments share a hue.
 RESET="\033[0m"
-TEXT="\033[38;2;205;214;244m"     # #cdd6f4 — primary text
-SUBTEXT="\033[38;2;166;173;200m"  # #a6adc8 — secondary text / labels
-OVERLAY="\033[38;2;108;112;134m"  # #6c7086 — separators / muted
-GREEN="\033[38;2;166;227;161m"    # #a6e3a1
-YELLOW="\033[38;2;249;226;175m"   # #f9e2af
-RED="\033[38;2;243;139;168m"      # #f38ba8
-PEACH="\033[38;2;250;179;135m"    # #fab387
-TEAL="\033[38;2;148;226;213m"     # #94e2d5
-SKY="\033[38;2;137;220;235m"      # #89dceb
-BLUE="\033[38;2;137;180;250m"     # #89b4fa
-MAUVE="\033[38;2;203;166;247m"    # #cba6f7
-LAVENDER="\033[38;2;180;190;254m" # #b4befe
-SAPPHIRE="\033[38;2;116;199;236m" # #74c7ec
+TEXT="\033[38;2;243;241;238m"     # #f3f1ee — primary text · DS --fg-0 oklch(96% 0.005 80) · scripted oklch->srgb
+SUBTEXT="\033[38;2;192;189;186m"  # #c0bdba — secondary text / labels · DS --fg-1 oklch(80% 0.006 70) · scripted oklch->srgb
+OVERLAY="\033[38;2;136;134;130m"  # #888682 — separators / muted · DS --fg-2 oklch(62% 0.006 70) · scripted oklch->srgb
+GREEN="\033[38;2;101;201;140m"    # #65c98c — DS --ok oklch(76% 0.13 155) · scripted oklch->srgb
+YELLOW="\033[38;2;232;170;78m"    # #e8aa4e — DS --warn oklch(78% 0.13 75) · scripted oklch->srgb
+RED="\033[38;2;232;97;84m"        # #e86154 — DS --danger oklch(66% 0.17 28) · scripted oklch->srgb
+PEACH="\033[38;2;207;110;57m"     # #cf6e39 — DS --accent (terracotta) oklch(64% 0.14 47) · scripted oklch->srgb
+TEAL="\033[38;2;0;196;189m"       # #00c4bd — DS --stage-early oklch(74% 0.14 190) · scripted oklch->srgb
+SKY="\033[38;2;87;184;227m"       # #57b8e3 — DS --info oklch(74% 0.11 230) · scripted oklch->srgb
+BLUE="\033[38;2;59;199;255m"      # #3bc7ff — DS --stage-labile oklch(78% 0.15 230) · scripted oklch->srgb
+MAUVE="\033[38;2;203;134;219m"    # #cb86db — DS --stage-recon oklch(72% 0.14 320) · scripted oklch->srgb
+LAVENDER="\033[38;2;190;140;225m" # #be8ce1 — DS --emo-conflct oklch(72% 0.13 310) · scripted oklch->srgb
+SAPPHIRE="\033[38;2;103;176;249m" # #67b0f9 — DS --emo-discov oklch(74% 0.13 250) · scripted oklch->srgb
 # back-compat aliases used below
 WHITE="$TEXT"; LGREY="$SUBTEXT"; CYAN="$TEAL"; MAGENTA="$MAUVE"
 SEP="${OVERLAY}│${RESET}"
@@ -275,19 +279,20 @@ if [ -z "$WARN_TOKENS" ] || [ -z "$SAVE_TOKENS" ]; then
   esac
 fi
 
-# interpolate a position (0..100) on the Catppuccin green→yellow→peach→red ramp,
+# interpolate a position (0..100) on the DS ok→warn→accent→danger ramp,
 # echoing "r;g;b". Continuous RGB lerp across three segments so the gradient is
-# smooth per cell (not 4 flat color blocks). Anchors: green #a6e3a1 (0),
-# yellow #f9e2af (40), peach #fab387 (70), red #f38ba8 (100).
+# smooth per cell (not 4 flat color blocks). Anchors (DS tokens/colors.css,
+# scripted oklch->srgb): --ok #65c98c (0), --warn #e8aa4e (40),
+# --accent #cf6e39 (70), --danger #e86154 (100).
 grad_rgb() {
   local p="$1" t r g b
   [ "$p" -lt 0 ] && p=0; [ "$p" -gt 100 ] && p=100
   if   [ "$p" -lt 40 ]; then t=$(( p * 100 / 40 ))
-       r=$(( 166 + (249-166)*t/100 )); g=$(( 227 + (226-227)*t/100 )); b=$(( 161 + (175-161)*t/100 ))
+       r=$(( 101 + (232-101)*t/100 )); g=$(( 201 + (170-201)*t/100 )); b=$(( 140 + (78-140)*t/100 ))
   elif [ "$p" -lt 70 ]; then t=$(( (p-40) * 100 / 30 ))
-       r=$(( 249 + (250-249)*t/100 )); g=$(( 226 + (179-226)*t/100 )); b=$(( 175 + (135-175)*t/100 ))
+       r=$(( 232 + (207-232)*t/100 )); g=$(( 170 + (110-170)*t/100 )); b=$(( 78 + (57-78)*t/100 ))
   else                       t=$(( (p-70) * 100 / 30 ))
-       r=$(( 250 + (243-250)*t/100 )); g=$(( 179 + (139-179)*t/100 )); b=$(( 135 + (168-135)*t/100 ))
+       r=$(( 207 + (232-207)*t/100 )); g=$(( 110 + (97-110)*t/100 )); b=$(( 57 + (84-57)*t/100 ))
   fi
   printf '%d;%d;%d' "$r" "$g" "$b"
 }
