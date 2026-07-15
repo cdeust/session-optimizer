@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Session optimizer: context-budget Stop guard, status line, and the refine gate (prompt → bound, research-backed execution contract).",
-    "version": "1.4.1"
+    "version": "1.4.2"
   },
   "plugins": [
     {
       "name": "session-optimizer",
       "source": "./",
       "description": "Context-budget Stop guard + status line for long Claude Code sessions, plus the refine gate: a UserPromptSubmit hook and /refine skill that resolve vague prompt references (\"the X solution\", \"the heat variable\", \"like before\") to concrete artifacts with evidence, then select an execution strategy from a research-backed table (15 strategies verified against 2024-2026 literature, counter-evidence included: intrinsic self-correction degrades reasoning arXiv:2310.01798; CoT marginal on reasoning models; multi-agent failure taxonomy MAST). Acceptance criteria must be external signals - tests, measurements, sources - never the model re-checking itself.",
-      "version": "1.4.1",
+      "version": "1.4.2",
       "author": {
         "name": "Clement Deust",
         "email": "admin@ai-architect.tools"

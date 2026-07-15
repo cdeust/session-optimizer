@@ -1,7 +1,7 @@
 {
   "name": "session-optimizer",
   "description": "Session optimizer for long Claude Code sessions: context-budget Stop guard + status line (per-model checkpoint protocol), and a refine gate — a UserPromptSubmit hook + /refine skill that bind vague prompt references to concrete artifacts and select a research-backed execution strategy before any code is touched.",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "author": {
     "name": "Clement Deust",
     "email": "admin@ai-architect.tools"
