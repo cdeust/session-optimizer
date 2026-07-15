@@ -223,25 +223,29 @@ esac
 # --- Colors: AI Architect DS — ink (instrument) surface palette (no DIM) ---
 # source: AI Architect Design System tokens/colors.css (:root ink-surface
 # primitives), each oklch value converted with CSS Color 4 math (scripted
-# oklch->srgb). Chrome is the warm-neutral fg scale; status = ok/warn/danger;
-# the one accent is terracotta; remaining hues come from the stage/valence
-# data families so no two semantically-different segments share a hue.
+# oklch->srgb). DS gate G3/G4 (SKILL.md): chrome is GREYSCALE — colour comes
+# only from data tokens (heat/stage/valence/tool families) or the single
+# terracotta accent, never both, never decoratively. None of this statusline's
+# segments (model/dir/worktree/subagent-count/throughput/compaction-count) are
+# DS "data families" — they are chrome — so they render in the neutral fg
+# scale (TEXT/SUBTEXT/OVERLAY), not in stage/valence hues. Status colours
+# (ok/warn/danger) are reserved for actual threshold-driven state. Terracotta
+# is used in exactly one place (the effort badge — the one user-selected,
+# accent-worthy dial) per G4 ("accent = selection only, never a category").
+# Fixes a prior 1:1 Catppuccin-Mocha->token remap (PR #2) that kept 12
+# competing hues (rainbow chrome) instead of DS's neutral-chrome-plus-one-accent
+# hierarchy — see session-optimizer PR "design(statusline): AI Architect DA
+# compliance — neutral chrome, single accent, no data-hue borrowing".
 RESET="\033[0m"
 TEXT="\033[38;2;243;241;238m"     # #f3f1ee — primary text · DS --fg-0 oklch(96% 0.005 80) · scripted oklch->srgb
 SUBTEXT="\033[38;2;192;189;186m"  # #c0bdba — secondary text / labels · DS --fg-1 oklch(80% 0.006 70) · scripted oklch->srgb
-OVERLAY="\033[38;2;136;134;130m"  # #888682 — separators / muted · DS --fg-2 oklch(62% 0.006 70) · scripted oklch->srgb
+OVERLAY="\033[38;2;136;134;130m"  # #888682 — separators / muted / decorative icons · DS --fg-2 oklch(62% 0.006 70) · scripted oklch->srgb
 GREEN="\033[38;2;101;201;140m"    # #65c98c — DS --ok oklch(76% 0.13 155) · scripted oklch->srgb
 YELLOW="\033[38;2;232;170;78m"    # #e8aa4e — DS --warn oklch(78% 0.13 75) · scripted oklch->srgb
 RED="\033[38;2;232;97;84m"        # #e86154 — DS --danger oklch(66% 0.17 28) · scripted oklch->srgb
-PEACH="\033[38;2;207;110;57m"     # #cf6e39 — DS --accent (terracotta) oklch(64% 0.14 47) · scripted oklch->srgb
-TEAL="\033[38;2;0;196;189m"       # #00c4bd — DS --stage-early oklch(74% 0.14 190) · scripted oklch->srgb
-SKY="\033[38;2;87;184;227m"       # #57b8e3 — DS --info oklch(74% 0.11 230) · scripted oklch->srgb
-BLUE="\033[38;2;59;199;255m"      # #3bc7ff — DS --stage-labile oklch(78% 0.15 230) · scripted oklch->srgb
-MAUVE="\033[38;2;203;134;219m"    # #cb86db — DS --stage-recon oklch(72% 0.14 320) · scripted oklch->srgb
-LAVENDER="\033[38;2;190;140;225m" # #be8ce1 — DS --emo-conflct oklch(72% 0.13 310) · scripted oklch->srgb
-SAPPHIRE="\033[38;2;103;176;249m" # #67b0f9 — DS --emo-discov oklch(74% 0.13 250) · scripted oklch->srgb
+PEACH="\033[38;2;207;110;57m"     # #cf6e39 — DS --accent (terracotta) oklch(64% 0.14 47) · scripted oklch->srgb · reserved for the effort badge ONLY (G4)
 # back-compat aliases used below
-WHITE="$TEXT"; LGREY="$SUBTEXT"; CYAN="$TEAL"; MAGENTA="$MAUVE"
+WHITE="$TEXT"; LGREY="$SUBTEXT"
 SEP="${OVERLAY}│${RESET}"
 
 # --- Checkpoint thresholds (tokens of input context) ---
@@ -279,20 +283,21 @@ if [ -z "$WARN_TOKENS" ] || [ -z "$SAVE_TOKENS" ]; then
   esac
 fi
 
-# interpolate a position (0..100) on the DS ok→warn→accent→danger ramp,
-# echoing "r;g;b". Continuous RGB lerp across three segments so the gradient is
-# smooth per cell (not 4 flat color blocks). Anchors (DS tokens/colors.css,
-# scripted oklch->srgb): --ok #65c98c (0), --warn #e8aa4e (40),
-# --accent #cf6e39 (70), --danger #e86154 (100).
+# interpolate a position (0..100) on the DS ok→warn→danger status ramp,
+# echoing "r;g;b". Continuous RGB lerp across two segments so the gradient is
+# smooth per cell (not 3 flat color blocks). Anchors are the DS's own
+# threshold-status inks ONLY (tokens/colors.css, scripted oklch->srgb):
+# --ok #65c98c (0), --warn #e8aa4e (50), --danger #e86154 (100). Terracotta
+# is intentionally NOT an anchor here — DS gate G4 (SKILL.md) reserves the
+# accent for selection, never a data/severity category; a fullness gauge is
+# exactly a severity category, so it stays inside ok/warn/danger.
 grad_rgb() {
   local p="$1" t r g b
   [ "$p" -lt 0 ] && p=0; [ "$p" -gt 100 ] && p=100
-  if   [ "$p" -lt 40 ]; then t=$(( p * 100 / 40 ))
+  if [ "$p" -lt 50 ]; then t=$(( p * 100 / 50 ))
        r=$(( 101 + (232-101)*t/100 )); g=$(( 201 + (170-201)*t/100 )); b=$(( 140 + (78-140)*t/100 ))
-  elif [ "$p" -lt 70 ]; then t=$(( (p-40) * 100 / 30 ))
-       r=$(( 232 + (207-232)*t/100 )); g=$(( 170 + (110-170)*t/100 )); b=$(( 78 + (57-78)*t/100 ))
-  else                       t=$(( (p-70) * 100 / 30 ))
-       r=$(( 207 + (232-207)*t/100 )); g=$(( 110 + (97-110)*t/100 )); b=$(( 57 + (84-57)*t/100 ))
+  else                     t=$(( (p-50) * 100 / 50 ))
+       r=$(( 232 + (232-232)*t/100 )); g=$(( 170 + (97-170)*t/100 )); b=$(( 78 + (84-78)*t/100 ))
   fi
   printf '%d;%d;%d' "$r" "$g" "$b"
 }
@@ -380,12 +385,13 @@ fmt_reset_at() {
 # =========================================================================
 # LINE: identity — model, effort, thinking, directory
 # =========================================================================
-l_id="${MAUVE}🤖 ${WHITE}${model}${RESET}"
+l_id="${OVERLAY}🤖 ${WHITE}${model}${RESET}"
 if [ -n "$effort" ]; then
+  # sole accent usage (DS G4): effort is the one user-selected dial per session
   l_id="${l_id} ${SEP} ${PEACH}⚡ ${effort}${RESET}"
-  [ "$thinking" = "true" ] && l_id="${l_id} ${YELLOW}💡${RESET}"
+  [ "$thinking" = "true" ] && l_id="${l_id} ${SUBTEXT}💡${RESET}"
 fi
-l_id="${l_id} ${SEP} ${TEAL}📂 ${dir}${RESET}"
+l_id="${l_id} ${SEP} ${OVERLAY}📂 ${TEXT}${dir}${RESET}"
 
 # =========================================================================
 # LINE: git — branch (+dirty +fallback repo), worktree, PR
@@ -415,7 +421,7 @@ if [ -n "$git_branch" ]; then
   fi
 fi
 if [ -n "$wt_name" ]; then
-  l_git="${l_git:+$l_git ${SEP} }${MAUVE}⎇ ${wt_name}${RESET}"
+  l_git="${l_git:+$l_git ${SEP} }${OVERLAY}⎇ ${TEXT}${wt_name}${RESET}"
 fi
 if [ -n "$pr_num" ]; then
   pr_color="$SUBTEXT"
@@ -453,7 +459,8 @@ fi
 DOLLAR='$'
 if [ -n "$cost" ] && [ "$RANK" -ge 1 ]; then
   cost_fmt=$(LC_NUMERIC=C awk "BEGIN{printf \"%.2f\",$cost}")
-  line2="${line2:+$line2 ${SEP} }${YELLOW}💰 ${DOLLAR}${cost_fmt}${RESET}"
+  # informational readout, no threshold behind it — neutral chrome, not warn
+  line2="${line2:+$line2 ${SEP} }${SUBTEXT}💰 ${DOLLAR}${cost_fmt}${RESET}"
 fi
 
 if [ -n "$dur_ms" ] && [ "$RANK" -ge 2 ]; then
@@ -485,13 +492,13 @@ fi
 
 # Subagents: count · tokens · cost — surfaces work the statusline input omits.
 if [ -n "$sub_count" ]; then
-  sub_seg="${MAGENTA}🤖${sub_count}${RESET}"
+  sub_seg="${OVERLAY}🤖${sub_count}${RESET}"
   if [ -n "$sub_tokens" ] && [ "$sub_tokens" -gt 0 ] 2>/dev/null; then
     sub_seg="${sub_seg} ${LGREY}$(fmt_tokens "$sub_tokens")${RESET}"
   fi
   if [ -n "$sub_cost" ]; then
     sub_cost_fmt=$(LC_NUMERIC=C awk "BEGIN{printf \"%.2f\",$sub_cost}" 2>/dev/null)
-    [ -n "$sub_cost_fmt" ] && sub_seg="${sub_seg} ${YELLOW}${DOLLAR}${sub_cost_fmt}${RESET}"
+    [ -n "$sub_cost_fmt" ] && sub_seg="${sub_seg} ${SUBTEXT}${DOLLAR}${sub_cost_fmt}${RESET}"
   fi
   line2="${line2:+$line2 ${SEP} }${sub_seg}"
 fi
@@ -505,7 +512,7 @@ if [ "$RANK" -ge 2 ]; then
   # turn throughput (tok/s) — wall-clock, includes tool latency (lower bound)
   if [ -n "$txt_tok_s" ] && [ "$txt_tok_s" != "null" ]; then
     ts_int=$(LC_NUMERIC=C awk "BEGIN{printf \"%.0f\",$txt_tok_s}")
-    [ "$ts_int" -gt 0 ] && l_tele="${TEAL}⚡ ${ts_int} t/s${RESET}"
+    [ "$ts_int" -gt 0 ] && l_tele="${SUBTEXT}⚡ ${ts_int} t/s${RESET}"
   fi
 
   # last-response age + prompt-cache TTL countdown, both from last_ts
@@ -526,7 +533,7 @@ if [ "$RANK" -ge 2 ]; then
 
   # context compactions this session (only when any have happened)
   if [ -n "$txt_compactions" ] && [ "$txt_compactions" != "null" ] && [ "$txt_compactions" -gt 0 ] 2>/dev/null; then
-    l_tele="${l_tele:+$l_tele ${SEP} }${MAUVE}🗜 ${txt_compactions}${RESET}"
+    l_tele="${l_tele:+$l_tele ${SEP} }${OVERLAY}🗜 ${txt_compactions}${RESET}"
   fi
 fi
 
@@ -559,7 +566,7 @@ if [ -n "$rl_5h" ]; then
   qc=$(quota_color "$v"); qb=$(make_bar "$v" "$BW")
   qover=""; [ "$v" -ge 100 ] && qover="${RED} ⚠${RESET}"
   rp=""; r=$(fmt_reset_in "$rl_5h_at") && [ -n "$r" ] && rp=" ${OVERLAY}↻${r}${RESET}"
-  l_quota5h="${PEACH}🎯 🚀 5h${RESET} ${qb} ${qc}${v}%${RESET}${rp}${qover}"
+  l_quota5h="${OVERLAY}🎯 🚀 5h${RESET} ${qb} ${qc}${v}%${RESET}${rp}${qover}"
 fi
 
 l_quota7d=""
@@ -568,12 +575,12 @@ if [ -n "$rl_7d" ]; then
   qc=$(quota_color "$v"); qb=$(make_bar "$v" "$BW")
   qover=""; [ "$v" -ge 100 ] && qover="${RED} ⚠${RESET}"
   rp=""; r=$(fmt_reset_at "$rl_7d_at") && [ -n "$r" ] && rp=" ${OVERLAY}↻${r}${RESET}"
-  l_quota7d="${PEACH}🎯 🌟 7d${RESET} ${qb} ${qc}${v}%${RESET}${rp}${qover}"
+  l_quota7d="${OVERLAY}🎯 🌟 7d${RESET} ${qb} ${qc}${v}%${RESET}${rp}${qover}"
 fi
 
 l_costref=""
 [ -n "$cost_cur" ]   && l_costref="${SUBTEXT}💰 $(fmt_usd "$cost_cur") ce mois${RESET}"
-[ -n "$cost_agent" ] && l_costref="${l_costref:+$l_costref ${SEP} }${SAPPHIRE}🤖 ${YELLOW}$(fmt_usd "$cost_agent")${OVERLAY}/run${RESET}"
+[ -n "$cost_agent" ] && l_costref="${l_costref:+$l_costref ${SEP} }${OVERLAY}🤖 ${SUBTEXT}$(fmt_usd "$cost_agent")${OVERLAY}/run${RESET}"
 [ "$RANK" -ge 4 ] && [ -n "$cost_avg" ] && l_costref="${l_costref:+$l_costref ${SEP} }${OVERLAY}(moy $(fmt_usd "$cost_avg")/mo)${RESET}"
 
 # --- Emit (%b interprets ANSI escapes; data is in args, not the format) ---
