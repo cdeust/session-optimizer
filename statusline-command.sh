@@ -21,6 +21,116 @@
 # No DIM attribute anywhere — it renders unreadable on black terminals.
 # Secondary text uses light grey; primary uses bright white.
 
+# --- Colors: AI Architect DS — ink (instrument) surface palette (no DIM) ---
+# source: AI Architect Design System tokens/colors.css (:root ink-surface
+# primitives), each oklch value converted with CSS Color 4 math (scripted
+# oklch->srgb). DS gate G3/G4 (SKILL.md): chrome is GREYSCALE — colour comes
+# only from data tokens (heat/stage/valence/tool families) or the single
+# terracotta accent, never both, never decoratively. None of this statusline's
+# segments (model/dir/worktree/subagent-count/throughput/compaction-count) are
+# DS "data families" — they are chrome — so they render in the neutral fg
+# scale (TEXT/SUBTEXT/OVERLAY), not in stage/valence hues. Status colours
+# (ok/warn/danger) are reserved for actual threshold-driven state. Terracotta
+# is used in exactly one place (the effort badge — the one user-selected,
+# accent-worthy dial) per G4 ("accent = selection only, never a category").
+# Fixes a prior 1:1 Catppuccin-Mocha->token remap (PR #2) that kept 12
+# competing hues (rainbow chrome) instead of DS's neutral-chrome-plus-one-accent
+# hierarchy — see session-optimizer PR "design(statusline): AI Architect DA
+# compliance — neutral chrome, single accent, no data-hue borrowing".
+RESET="\033[0m"
+TEXT="\033[38;2;243;241;238m"     # #f3f1ee — primary text · DS --fg-0 oklch(96% 0.005 80) · scripted oklch->srgb
+SUBTEXT="\033[38;2;192;189;186m"  # #c0bdba — secondary text / labels · DS --fg-1 oklch(80% 0.006 70) · scripted oklch->srgb
+OVERLAY="\033[38;2;136;134;130m"  # #888682 — separators / muted / decorative icons · DS --fg-2 oklch(62% 0.006 70) · scripted oklch->srgb
+GREEN="\033[38;2;101;201;140m"    # #65c98c — DS --ok oklch(76% 0.13 155) · scripted oklch->srgb
+YELLOW="\033[38;2;232;170;78m"    # #e8aa4e — DS --warn oklch(78% 0.13 75) · scripted oklch->srgb
+RED="\033[38;2;232;97;84m"        # #e86154 — DS --danger oklch(66% 0.17 28) · scripted oklch->srgb
+PEACH="\033[38;2;207;110;57m"     # #cf6e39 — DS --accent (terracotta) oklch(64% 0.14 47) · scripted oklch->srgb · two legitimate consumers: the effort badge (G4 selection-only accent) AND the heat-track palier 4 (HEAT_4 below, G6 heat-track exception) — never a third, decorative use
+# back-compat aliases used below
+WHITE="$TEXT"; LGREY="$SUBTEXT"
+SEP="${OVERLAY}│${RESET}"
+
+# Heat-track palette (DS gate G6: "No gradients except the heat track" —
+# this bar IS the heat track, so a 4-palier discrete ramp is the compliant
+# form; no interpolation). Thresholds HEAT_T2/T3/T4 are named constants,
+# format matches the TEXT/SUBTEXT/OVERLAY/PEACH block above: hex + DS token +
+# derivation on each line.
+HEAT_T2=50   # palier 1->2 boundary (%)
+HEAT_T3=75   # palier 2->3 boundary (%)
+HEAT_T4=90   # palier 3->4 boundary (%); matches WARN/SAVE ratio for
+             # sonnet/opus (180000/200000 = 0.90) in ctxguard-thresholds.json
+             # (see the Checkpoint thresholds block below) — the heat track's
+             # critical palier starts exactly where the checkpoint hook's own
+             # hard-cap ratio does, so the visual and the enforcement
+             # threshold cannot drift apart by design.
+HEAT_1="136;134;130"  # #888682 — DS --fg-2 oklch(62% 0.006 70) · scripted oklch->srgb · reused from OVERLAY (0-49%)
+HEAT_2="192;189;186"  # #c0bdba — DS --fg-1 oklch(80% 0.006 70) · scripted oklch->srgb · reused from SUBTEXT (50-74%)
+HEAT_3="181;125;98"   # #b57d62 — terracotta atténué, source: scripted oklch->srgb, oklch(64% 0.08 47), Ottosson OKLab (75-89%)
+HEAT_4="207;110;57"   # #cf6e39 — DS --accent (terracotta) oklch(64% 0.14 47) · scripted oklch->srgb · reused from PEACH (90-100%)
+
+# heat_rgb — pure heat-track color selector.
+# pre: $1 is an integer (any sign, any magnitude); non-integer input is a
+#      contract violation and the function fails (exit 1, no output).
+# post: on success, prints exactly one of {HEAT_1, HEAT_2, HEAT_3, HEAT_4}
+#       as "r;g;b" (never interpolated) and returns 0. Input is clamped to
+#       [0,100] before palier lookup, so out-of-range integers always
+#       succeed and resolve to the nearest boundary palier (HEAT_1 or
+#       HEAT_4). No I/O, no global mutation beyond reading the HEAT_*
+#       constants above — total function once input is validated numeric.
+heat_rgb() {
+  local p="$1"
+  case "$p" in
+    ''|*[!0-9-]*) return 1 ;;   # reject empty / non-numeric (incl. "abc")
+  esac
+  [ "$p" -lt 0 ] && p=0
+  [ "$p" -gt 100 ] && p=100
+  if   [ "$p" -lt "$HEAT_T2" ]; then printf '%s' "$HEAT_1"
+  elif [ "$p" -lt "$HEAT_T3" ]; then printf '%s' "$HEAT_2"
+  elif [ "$p" -lt "$HEAT_T4" ]; then printf '%s' "$HEAT_3"
+  else                                printf '%s' "$HEAT_4"
+  fi
+}
+
+# render a heat-track block bar of $2 cells filled to $1 percent (clamped
+# 0..width). Each filled cell is colored by its POSITION along the full
+# width via heat_rgb (4 discrete paliers, no interpolation — G6 heat-track
+# exception), so a longer (more-full) bar visibly accumulates paliers left
+# to right. Empty cells stay muted. The bar is self-coloring: callers must
+# NOT wrap the result in a single color (trailing RESET closes it).
+make_bar() {
+  local p="$1" w="$2" filled empty i pos rgb b=""
+  filled=$(( (p * w + 50) / 100 ))   # round to nearest cell
+  [ "$filled" -gt "$w" ] && filled="$w"
+  [ "$filled" -lt 0 ] && filled=0
+  empty=$(( w - filled ))
+  i=0
+  while [ "$i" -lt "$filled" ]; do
+    pos=$(( w > 1 ? i * 100 / (w - 1) : 0 ))   # cell position 0..100
+    rgb=$(heat_rgb "$pos")
+    b="${b}\033[38;2;${rgb}m█"
+    i=$(( i + 1 ))
+  done
+  [ "$filled" -gt 0 ] && b="${b}${RESET}"
+  [ "$empty" -gt 0 ] && { printf -v e "%${empty}s"; b="${b}${OVERLAY}${e// /░}${RESET}"; }
+  printf '%s' "$b"
+}
+
+# pick color for a given token count
+token_color() {
+  local t="$1"
+  if   [ "$t" -ge "$SAVE_TOKENS" ]; then echo "$RED"
+  elif [ "$t" -ge "$WARN_TOKENS" ]; then echo "$YELLOW"
+  else echo "$GREEN"; fi
+}
+
+# Test-sourcing guard: allows `source statusline-command.sh` to load the
+# constant and function definitions above (heat_rgb, make_bar, token_color,
+# HEAT_*, the color palette) without reading stdin or running the rest of
+# the script. Set by test harnesses only (tests/statusline/test_heat_rgb.sh);
+# unset/0 in normal invocation. Placed after the pure, input-independent
+# definitions so tests can source and call them; everything below this line
+# depends on stdin ($input) or on values derived from it.
+[ "${STATUSLINE_SOURCE_ONLY:-0}" = "1" ] && return 0 2>/dev/null
+
 input=$(cat)
 j() { echo "$input" | jq -r "$1"; }
 
@@ -31,6 +141,41 @@ thinking=$(j '.thinking.enabled // false')
 used_pct=$(j '.context_window.used_percentage // empty')
 in_tokens=$(j '.context_window.total_input_tokens // empty')
 transcript_path=$(j '.transcript_path // empty')
+
+# --- Checkpoint thresholds (tokens of input context) ---
+# Single source of truth: ~/.claude/ctxguard-thresholds.json (shared with the
+# stop-context-guard.py hook so passive display and active enforcement cannot
+# drift). The case block below is the embedded fallback and MUST mirror the
+# hook's FALLBACK_THRESHOLDS table. First substring match wins.
+# WARN = checkpoint threshold (save now); SAVE = soft cap (save + recall, fresh session).
+CTXGUARD_CONFIG="${HOME}/.claude/ctxguard-thresholds.json"
+model_lc=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')
+
+WARN_TOKENS=""
+SAVE_TOKENS=""
+if [ -r "$CTXGUARD_CONFIG" ]; then
+  # First entry whose .match is a substring of the lowercased display name;
+  # falls back to .default. Emits "warn save" or nothing on any jq failure.
+  read -r WARN_TOKENS SAVE_TOKENS < <(
+    jq -r --arg m "$model_lc" '
+      ( [ .models[]? | select(.match != null)
+          | select(.match as $p | $m | contains($p)) ][0]
+        // .default // empty )
+      | select(.warn != null and .hard != null)
+      | "\(.warn) \(.hard)"
+    ' "$CTXGUARD_CONFIG" 2>/dev/null
+  ) || true
+fi
+case "$WARN_TOKENS" in ''|*[!0-9]*) WARN_TOKENS="" ;; esac
+case "$SAVE_TOKENS" in ''|*[!0-9]*) SAVE_TOKENS="" ;; esac
+
+if [ -z "$WARN_TOKENS" ] || [ -z "$SAVE_TOKENS" ]; then
+  case "$model_lc" in
+    *fable*|*mythos*) WARN_TOKENS=120000; SAVE_TOKENS=160000 ;;
+    *haiku*)          WARN_TOKENS=120000; SAVE_TOKENS=170000 ;;
+    *)                WARN_TOKENS=180000; SAVE_TOKENS=200000 ;;
+  esac
+fi
 
 # --- Cost / duration / churn ---
 cost=$(j '.cost.total_cost_usd // empty')
@@ -219,119 +364,6 @@ case "$SIZE" in
   l)  RANK=3; CTX_W=10; BW=12 ;;
   xl) RANK=4; CTX_W=16; BW=20 ;;
 esac
-
-# --- Colors: AI Architect DS — ink (instrument) surface palette (no DIM) ---
-# source: AI Architect Design System tokens/colors.css (:root ink-surface
-# primitives), each oklch value converted with CSS Color 4 math (scripted
-# oklch->srgb). DS gate G3/G4 (SKILL.md): chrome is GREYSCALE — colour comes
-# only from data tokens (heat/stage/valence/tool families) or the single
-# terracotta accent, never both, never decoratively. None of this statusline's
-# segments (model/dir/worktree/subagent-count/throughput/compaction-count) are
-# DS "data families" — they are chrome — so they render in the neutral fg
-# scale (TEXT/SUBTEXT/OVERLAY), not in stage/valence hues. Status colours
-# (ok/warn/danger) are reserved for actual threshold-driven state. Terracotta
-# is used in exactly one place (the effort badge — the one user-selected,
-# accent-worthy dial) per G4 ("accent = selection only, never a category").
-# Fixes a prior 1:1 Catppuccin-Mocha->token remap (PR #2) that kept 12
-# competing hues (rainbow chrome) instead of DS's neutral-chrome-plus-one-accent
-# hierarchy — see session-optimizer PR "design(statusline): AI Architect DA
-# compliance — neutral chrome, single accent, no data-hue borrowing".
-RESET="\033[0m"
-TEXT="\033[38;2;243;241;238m"     # #f3f1ee — primary text · DS --fg-0 oklch(96% 0.005 80) · scripted oklch->srgb
-SUBTEXT="\033[38;2;192;189;186m"  # #c0bdba — secondary text / labels · DS --fg-1 oklch(80% 0.006 70) · scripted oklch->srgb
-OVERLAY="\033[38;2;136;134;130m"  # #888682 — separators / muted / decorative icons · DS --fg-2 oklch(62% 0.006 70) · scripted oklch->srgb
-GREEN="\033[38;2;101;201;140m"    # #65c98c — DS --ok oklch(76% 0.13 155) · scripted oklch->srgb
-YELLOW="\033[38;2;232;170;78m"    # #e8aa4e — DS --warn oklch(78% 0.13 75) · scripted oklch->srgb
-RED="\033[38;2;232;97;84m"        # #e86154 — DS --danger oklch(66% 0.17 28) · scripted oklch->srgb
-PEACH="\033[38;2;207;110;57m"     # #cf6e39 — DS --accent (terracotta) oklch(64% 0.14 47) · scripted oklch->srgb · reserved for the effort badge ONLY (G4)
-# back-compat aliases used below
-WHITE="$TEXT"; LGREY="$SUBTEXT"
-SEP="${OVERLAY}│${RESET}"
-
-# --- Checkpoint thresholds (tokens of input context) ---
-# Single source of truth: ~/.claude/ctxguard-thresholds.json (shared with the
-# stop-context-guard.py hook so passive display and active enforcement cannot
-# drift). The case block below is the embedded fallback and MUST mirror the
-# hook's FALLBACK_THRESHOLDS table. First substring match wins.
-# WARN = checkpoint threshold (save now); SAVE = soft cap (save + recall, fresh session).
-CTXGUARD_CONFIG="${HOME}/.claude/ctxguard-thresholds.json"
-model_lc=$(printf '%s' "$model" | tr '[:upper:]' '[:lower:]')
-
-WARN_TOKENS=""
-SAVE_TOKENS=""
-if [ -r "$CTXGUARD_CONFIG" ]; then
-  # First entry whose .match is a substring of the lowercased display name;
-  # falls back to .default. Emits "warn save" or nothing on any jq failure.
-  read -r WARN_TOKENS SAVE_TOKENS < <(
-    jq -r --arg m "$model_lc" '
-      ( [ .models[]? | select(.match != null)
-          | select(.match as $p | $m | contains($p)) ][0]
-        // .default // empty )
-      | select(.warn != null and .hard != null)
-      | "\(.warn) \(.hard)"
-    ' "$CTXGUARD_CONFIG" 2>/dev/null
-  ) || true
-fi
-case "$WARN_TOKENS" in ''|*[!0-9]*) WARN_TOKENS="" ;; esac
-case "$SAVE_TOKENS" in ''|*[!0-9]*) SAVE_TOKENS="" ;; esac
-
-if [ -z "$WARN_TOKENS" ] || [ -z "$SAVE_TOKENS" ]; then
-  case "$model_lc" in
-    *fable*|*mythos*) WARN_TOKENS=120000; SAVE_TOKENS=160000 ;;
-    *haiku*)          WARN_TOKENS=120000; SAVE_TOKENS=170000 ;;
-    *)                WARN_TOKENS=180000; SAVE_TOKENS=200000 ;;
-  esac
-fi
-
-# interpolate a position (0..100) on the DS ok→warn→danger status ramp,
-# echoing "r;g;b". Continuous RGB lerp across two segments so the gradient is
-# smooth per cell (not 3 flat color blocks). Anchors are the DS's own
-# threshold-status inks ONLY (tokens/colors.css, scripted oklch->srgb):
-# --ok #65c98c (0), --warn #e8aa4e (50), --danger #e86154 (100). Terracotta
-# is intentionally NOT an anchor here — DS gate G4 (SKILL.md) reserves the
-# accent for selection, never a data/severity category; a fullness gauge is
-# exactly a severity category, so it stays inside ok/warn/danger.
-grad_rgb() {
-  local p="$1" t r g b
-  [ "$p" -lt 0 ] && p=0; [ "$p" -gt 100 ] && p=100
-  if [ "$p" -lt 50 ]; then t=$(( p * 100 / 50 ))
-       r=$(( 101 + (232-101)*t/100 )); g=$(( 201 + (170-201)*t/100 )); b=$(( 140 + (78-140)*t/100 ))
-  else                     t=$(( (p-50) * 100 / 50 ))
-       r=$(( 232 + (232-232)*t/100 )); g=$(( 170 + (97-170)*t/100 )); b=$(( 78 + (84-78)*t/100 ))
-  fi
-  printf '%d;%d;%d' "$r" "$g" "$b"
-}
-
-# render a gradient block bar of $2 cells filled to $1 percent (clamped 0..width).
-# Each filled cell is colored by its POSITION along the full width via grad_rgb,
-# a smooth green→yellow→peach→red gradient, so a longer (more-full) bar visibly
-# reaches into the red. Empty cells stay muted. The bar is self-coloring:
-# callers must NOT wrap the result in a single color (trailing RESET closes it).
-make_bar() {
-  local p="$1" w="$2" filled empty i pos rgb b=""
-  filled=$(( (p * w + 50) / 100 ))   # round to nearest cell
-  [ "$filled" -gt "$w" ] && filled="$w"
-  [ "$filled" -lt 0 ] && filled=0
-  empty=$(( w - filled ))
-  i=0
-  while [ "$i" -lt "$filled" ]; do
-    pos=$(( w > 1 ? i * 100 / (w - 1) : 0 ))   # cell position 0..100
-    rgb=$(grad_rgb "$pos")
-    b="${b}\033[38;2;${rgb}m█"
-    i=$(( i + 1 ))
-  done
-  [ "$filled" -gt 0 ] && b="${b}${RESET}"
-  [ "$empty" -gt 0 ] && { printf -v e "%${empty}s"; b="${b}${OVERLAY}${e// /░}${RESET}"; }
-  printf '%s' "$b"
-}
-
-# pick color for a given token count
-token_color() {
-  local t="$1"
-  if   [ "$t" -ge "$SAVE_TOKENS" ]; then echo "$RED"
-  elif [ "$t" -ge "$WARN_TOKENS" ]; then echo "$YELLOW"
-  else echo "$GREEN"; fi
-}
 
 fmt_tokens() {
   local t="$1"
