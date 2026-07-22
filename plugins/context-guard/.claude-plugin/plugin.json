@@ -1,0 +1,21 @@
+{
+  "name": "context-guard",
+  "description": "Context-budget guard for long Claude Code sessions: a Stop hook enforces a per-model checkpoint protocol (mechanical stub + budgeted memory-writer subagent), and a SubagentStop tracker surfaces true session spend (main thread + subagents). Default protocol uses only vanilla Claude Code; a scoped memory layer is detected at runtime when installed.",
+  "version": "2.0.0",
+  "author": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools"
+  },
+  "homepage": "https://github.com/cdeust/session-optimizer",
+  "repository": "https://github.com/cdeust/session-optimizer",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "context-window",
+    "token-budget",
+    "checkpoint",
+    "stop-hook",
+    "subagent-cost",
+    "session-management"
+  ]
+}

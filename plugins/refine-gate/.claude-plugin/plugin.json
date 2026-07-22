@@ -1,0 +1,20 @@
+{
+  "name": "refine-gate",
+  "description": "Prompt-binding gate for Claude Code: a UserPromptSubmit hook detects prompts carrying unbound references (\"the SSE solution\", \"like before\", \"still broken\") or ungrounded work requests, and injects the /refine procedure — build a binding table with evidence, separate symptom from goal, select an execution strategy from a research-backed table (15 strategies verified against 2024-2026 literature, counter-evidence included), and define acceptance criteria as external signals.",
+  "version": "2.0.0",
+  "author": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools"
+  },
+  "homepage": "https://github.com/cdeust/session-optimizer",
+  "repository": "https://github.com/cdeust/session-optimizer",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "prompt-engineering",
+    "refine",
+    "intent-binding",
+    "userpromptsubmit",
+    "execution-strategy"
+  ]
+}

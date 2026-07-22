@@ -32,9 +32,16 @@ jobs:
         run: bash tests/statusline/test_heat_rgb.sh
 
       - name: Shellcheck statusline script
-        run: shellcheck statusline-command.sh
+        run: shellcheck plugins/statusline/assets/statusline-command.sh
 
-      - name: Validate hook and plugin JSON
+      - name: Validate marketplace, plugin, and hook JSON
         run: |
+          python -m json.tool .claude-plugin/marketplace.json > /dev/null
           python -m json.tool .claude-plugin/plugin.json > /dev/null
           python -m json.tool hooks/hooks.json > /dev/null
+          for plugin in context-guard refine-gate statusline; do
+            python -m json.tool "plugins/$plugin/.claude-plugin/plugin.json" > /dev/null
+            python -m json.tool "plugins/$plugin/hooks/hooks.json" > /dev/null
+          done
+          python -m json.tool plugins/statusline/assets/statusline-budget.json > /dev/null
+          python -m json.tool plugins/statusline/assets/ctxguard-thresholds.json > /dev/null

@@ -1,10 +1,12 @@
-"""Tests for tools/subagent_usage.py — parsing, pricing, dedup, discovery."""
+"""Tests for plugins/context-guard/tools/subagent_usage.py — parsing, pricing,
+dedup, discovery."""
 
 import json
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(__file__), "..", "plugins", "context-guard", "tools"))
 
 import subagent_usage as su  # noqa: E402
 

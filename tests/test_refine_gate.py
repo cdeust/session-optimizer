@@ -23,7 +23,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-HOOK = Path(__file__).resolve().parent.parent / "hooks" / "refine_gate.py"
+HOOK = (
+    Path(__file__).resolve().parent.parent
+    / "plugins" / "refine-gate" / "hooks" / "refine_gate.py"
+)
 
 # 4 chars/token heuristic — see module docstring for source + bias note.
 CHARS_PER_TOKEN = 4

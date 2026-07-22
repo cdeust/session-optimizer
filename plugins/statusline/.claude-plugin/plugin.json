@@ -1,0 +1,22 @@
+{
+  "name": "statusline",
+  "description": "Multi-line Claude Code statusline (Catppuccin Mocha) with RGB-gradient context bars tied to per-model checkpoint thresholds, monthly cost tracking, per-session telemetry (tok/s, compactions, prompt-cache countdown), rate-limit gauges, and live subagent spend. Ships an install skill that copies the bundled assets into ~/.claude and wires settings.json.",
+  "version": "2.0.0",
+  "author": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools"
+  },
+  "homepage": "https://github.com/cdeust/session-optimizer",
+  "repository": "https://github.com/cdeust/session-optimizer",
+  "license": "MIT",
+  "keywords": [
+    "statusline",
+    "status",
+    "context",
+    "git",
+    "cost",
+    "rate-limits",
+    "telemetry",
+    "ui"
+  ]
+}
