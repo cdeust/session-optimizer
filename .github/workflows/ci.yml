@@ -31,11 +31,8 @@ jobs:
       - name: Statusline unit tests
         run: bash tests/statusline/test_heat_rgb.sh
 
-      # Scoped to --severity=error: the script currently carries 3 benign
-      # warnings (2x SC1083 on git's literal @{u} syntax, 1x SC2034) that
-      # would fail a full-severity run.
       - name: Shellcheck statusline script
-        run: shellcheck --severity=error statusline-command.sh
+        run: shellcheck statusline-command.sh
 
       - name: Validate hook and plugin JSON
         run: |

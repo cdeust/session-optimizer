@@ -237,6 +237,7 @@ branch_of() {      # echo "branch dirty" for repo root $1
 # Pure git; one rev-list + one status call. Sets the git_* / n* globals above.
 compute_git_extra() {
   local root="$1" lr line xy
+  # shellcheck disable=SC1083  # @{u} is git revision syntax (upstream), not a brace expansion
   lr=$(git -C "$root" -c core.useBuiltinFSMonitor=false \
        rev-list --left-right --count HEAD...@{u} 2>/dev/null)
   if [ -n "$lr" ]; then
@@ -296,6 +297,8 @@ fi
 
 cost_cur=""; cost_avg=""; cost_agent=""; tok_cur=""
 if [ -r "$COST_CACHE" ]; then
+  # shellcheck disable=SC2034  # tok_cur is a field sink: it absorbs the 4th jq
+  # field so cost_agent cannot swallow the rest of the line via read's remainder rule
   read -r cost_cur cost_avg cost_agent tok_cur < <(
     jq -r '"\(.current_month // "") \(.avg_month // "") \(.avg_per_agent // "") \(.current_month_tokens // "")"' "$COST_CACHE" 2>/dev/null
   ) || true
