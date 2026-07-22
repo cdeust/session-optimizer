@@ -1,35 +1,17 @@
 {
+  "//": "Deprecation shim only. v2.0.0 split session-optimizer into three plugins;",
+  "//1": "the Stop / SubagentStop / UserPromptSubmit hooks moved to plugins/context-guard",
+  "//2": "and plugins/refine-gate, each registering its own hooks/hooks.json. This file",
+  "//3": "must never re-register them (double execution for users with both installed).",
   "hooks": {
-    "Stop": [
+    "SessionStart": [
       {
+        "matcher": "startup",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop-context-guard.py",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/subagent-tracker.py",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/refine_gate.py",
-            "timeout": 5,
-            "statusMessage": "refine gate: checking for unbound references"
+            "command": "echo '[session-optimizer] DEPRECATED (v2.0.0): this meta plugin no longer provides any hooks. It split into three independent plugins on the same marketplace - context-guard (Stop-hook context budget + memory-writer checkpoint subagent + subagent spend tracker), refine-gate (UserPromptSubmit prompt-binding gate + /refine skill), and statusline (multi-line status bar; run its statusline skill to install). Tell the user to install the plugins they want, then uninstall session-optimizer to silence this notice.'",
+            "timeout": 5
           }
         ]
       }

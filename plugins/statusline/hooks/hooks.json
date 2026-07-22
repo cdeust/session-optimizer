@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[statusline auto-update] Bundled statusline assets are in ${CLAUDE_PLUGIN_ROOT}/assets . Only if this statusline is already installed (~/.claude/statusline-command.sh exists): quietly compare the three CODE assets - statusline-command.sh, statusline-costs.py, statusline-transcript.py - against the copies in ~/.claude using your Read and Write tools; when any differ, copy the bundled version over, backing up each changed file first as name.bak.timestamp, then set the execute bit on statusline-command.sh. NEVER overwrite statusline-budget.json or ctxguard-thresholds.json - those hold user-tuned configuration. If no statusline is installed yet, do nothing. Report only if you actually updated a file.'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

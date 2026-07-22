@@ -1,7 +1,7 @@
 {
   "name": "session-optimizer",
-  "description": "Session optimizer for long Claude Code sessions: context-budget Stop guard + status line (per-model checkpoint protocol), and a refine gate — a UserPromptSubmit hook + /refine skill that bind vague prompt references to concrete artifacts and select a research-backed execution strategy before any code is touched.",
-  "version": "1.4.3",
+  "description": "DEPRECATED meta plugin (v2.0.0): session-optimizer split into three independently installable plugins — context-guard (Stop-hook context budget + memory-writer checkpoint subagent + subagent spend tracker), refine-gate (UserPromptSubmit prompt-binding gate + /refine skill), and statusline (multi-line status bar + install skill). This shim registers no functional hooks; it only announces the migration at session start. Install the three plugins from the same marketplace, then uninstall session-optimizer.",
+  "version": "2.0.0",
   "author": {
     "name": "Clement Deust",
     "email": "admin@ai-architect.tools"
@@ -10,14 +10,8 @@
   "repository": "https://github.com/cdeust/session-optimizer",
   "license": "MIT",
   "keywords": [
-    "claude-code",
-    "context-window",
-    "token-budget",
-    "checkpoint",
-    "statusline",
-    "session-management",
-    "prompt-engineering",
-    "refine",
-    "intent-binding"
+    "deprecated",
+    "meta",
+    "session-management"
   ]
 }

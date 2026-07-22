@@ -10,7 +10,7 @@
 # trap EXIT). Execution order is randomized (shuf) on every run. All fixture
 # data is synthetic (percentages 0-100); no production data, no PII.
 set -uo pipefail
-SCRIPT_UNDER_TEST="${SCRIPT_UNDER_TEST:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/statusline-command.sh}"
+SCRIPT_UNDER_TEST="${SCRIPT_UNDER_TEST:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/plugins/statusline/assets/statusline-command.sh}"
 
 # Expected palette values — asserted independently of the script's own HEAT_*
 # constants (except HEAT_3, whose exact terracotta-attenuated RGB is derived

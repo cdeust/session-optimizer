@@ -23,7 +23,7 @@ output: >
 ## Automation
 
 A `UserPromptSubmit` hook (`hooks/refine_gate.py`, wired by this
-plugin's `plugin.json`) applies this skill automatically on two
+plugin's `hooks/hooks.json`) applies this skill automatically on two
 tiers:
 
 * **Tier 1 — reference markers**: prior-artifact shorthand, "exactly
@@ -144,14 +144,14 @@ knowledge?) and pick the matching row(s) — usually 1–2, never all:
 | recursive_refinement | hard reasoning, high precision | DeepSeek-R1 arXiv:2501.12948; Snell arXiv:2408.03314; survey arXiv:2512.02008: no test-time strategy universally optimal (confirmed, native) | extended thinking / higher effort on the hard subtask only |
 | self_consistency | one answer, several plausible derivations | Wang arXiv:2203.11171; still effective as parallel test-time scaling (arXiv:2512.02008, ST-BoN arXiv:2503.01422) (confirmed) | N independent attempts + majority/judge via parallel subagents |
 | verified_reasoning | accuracy-critical claims | CoVe arXiv:2309.11495 (Meta AI, not Stanford/Anthropic); BUT intrinsic self-correction degrades reasoning: Huang ICLR'24 arXiv:2310.01798, Self-Correction Bench arXiv:2507.02778 (caveated) | verify against EXTERNAL ground truth — run the test, fetch the source, measure — never by re-asking the model to double-check itself |
-| reflexion | retrying after failed attempts | Shinn arXiv:2303.11366; reflection without external signal is mostly confirmatory, rarely flips the answer ("First Try Matters" arXiv:2510.08308) (caveated) | feed REAL feedback — test failures, benchmark deltas, recalled failures (cortex:recall first, cortex:remember after) |
+| reflexion | retrying after failed attempts | Shinn arXiv:2303.11366; reflection without external signal is mostly confirmatory, rarely flips the answer ("First Try Matters" arXiv:2510.08308) (caveated) | feed REAL feedback — test failures, benchmark deltas, recalled failures (recall past attempts first, store the lesson after, via your memory layer when one is installed) |
 | tree_of_thoughts | genuinely branching solution space | Yao arXiv:2305.10601; ~100× compute vs one CoT on Game-of-24, gains shown on puzzle-class tasks (arXiv:2401.14295) (caveated: cost) | judge panel of N approaches ONLY when designs genuinely diverge; otherwise skip |
 | graph_of_thoughts | decompose-and-merge structure | Besta arXiv:2308.09687 (confirmed, niche) | build the dependency graph explicitly (query_workflow_graph / get_impact) before editing |
 | meta_prompting | task spans expert roles | Suzgun arXiv:2401.12954; BUT multi-agent often ≤ single agent — 14 failure modes, spec issues + misalignment + weak verification (MAST arXiv:2503.13657) (caveated) | route to ONE specialist with a complete role spec + verification step; don't fan out by default |
 | plan_and_solve | ordering-heavy multi-step work | Wang arXiv:2305.04091 (confirmed, absorbed into agentic planning) | plan mode / written plan with checkable steps |
 | react | interleaved reasoning + tool use | Yao arXiv:2210.03629 (native) | the agent loop IS ReAct; just act |
 | many_shot (was few_shot) | output format/style must match examples | Brown arXiv:2005.14165 → Many-Shot ICL arXiv:2404.11018 (NeurIPS'24 spotlight): more real examples keep helping with long context (confirmed, evolved) | paste real examples from THIS repo; scale count with context budget |
-| generate_knowledge | missing domain facts | Liu arXiv:2110.08387 (weakened: parametric generation hallucinates; superseded by retrieval) | RETRIEVE, don't generate: cortex:recall, read the actual paper/source — knowledge from a vacuum is the failure mode §8 of coding-standards forbids |
+| generate_knowledge | missing domain facts | Liu arXiv:2110.08387 (weakened: parametric generation hallucinates; superseded by retrieval) | RETRIEVE, don't generate: your memory layer's recall (when installed), read the actual paper/source — knowledge from a vacuum is the failure mode §8 of coding-standards forbids |
 | multimodal_cot | visual evidence | Zhang arXiv:2302.00923 (native multimodality) | read the actual image/screenshot; verify UI claims by looking |
 | chain_of_thought | explicit audit trail wanted | Wei-era CoT now marginal on reasoning models: +2.9–3.1% at 20–80% time cost (Wharton GAIL 2025); HARMS some task classes, −36.3% o1-preview on implicit statistical learning (arXiv:2410.21333); models reason unprompted (arXiv:2402.10200) (weakened) | don't inject "think step by step"; write the derivation out only when the USER needs the audit trail |
 | problem_analysis | tangled symptom, unclear decomposition | engine-internal (no arXiv); closest sourced umbrella: decomposition class in The Prompt Report arXiv:2406.06608 (weakest row) | §§2–3 of this skill: binding + symptom/goal split IS the decomposition |
@@ -196,11 +196,13 @@ the end and report pass/fail explicitly.
 
 ### 8. Close the loop
 
-After execution (or after the user corrects a binding), store via
-`cortex:remember` (tags: ["archival", "lesson", "prompt-binding"],
-agent_topic scoped): the raw phrase → correct binding pair, so the
-next session binds it instantly. Mis-bindings the user had to correct
-are the highest-value memories this skill produces.
+After execution (or after the user corrects a binding), store the raw
+phrase → correct binding pair via your memory layer's remember tool
+when one is installed (e.g. `cortex:remember`, tags: ["archival",
+"lesson", "prompt-binding"], agent_topic scoped), so the next session
+binds it instantly; without a memory layer, note it in the project's
+own records (CLAUDE.md or a docs note). Mis-bindings the user had to
+correct are the highest-value memories this skill produces.
 
 ## Failure modes this skill exists to prevent
 

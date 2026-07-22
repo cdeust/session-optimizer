@@ -2,9 +2,10 @@
 """UserPromptSubmit gate: inject the /refine binding-table instruction
 when the prompt contains unresolved-reference markers.
 
-Part of the session-optimizer plugin: ships with the /refine skill
-(skills/refine/SKILL.md) and is wired via plugin.json's UserPromptSubmit
-hook. The skill only runs when invoked; this hook automates its core
+Part of the refine-gate plugin: ships with the /refine skill
+(skills/refine/SKILL.md) and is wired via the plugin's hooks/hooks.json
+UserPromptSubmit entry. The skill only runs when invoked; this hook
+automates its core
 discipline for prompts that look
 like they carry unbound references — shorthand for prior work ("the SSE
 solution", "like before"), repeat-failure markers ("still broken",
@@ -77,10 +78,11 @@ _CONCRETE_ANCHOR = re.compile(
 _INSTRUCTION_REFS = (
     "<refine-gate>This prompt contains references that may be unbound "
     "(matched: {matched}). Before executing, apply the /refine "
-    "procedure (the session-optimizer /refine skill): (1) build the "
+    "procedure (the refine-gate /refine skill): (1) build the "
     "binding table — resolve EACH vague reference to a concrete "
     "artifact (file/commit/memory/process) with evidence from "
-    "cortex:recall, git log, or grep; (2) state symptom vs goal vs "
+    "git log, grep, or your memory layer's recall tool when one is "
+    "installed; (2) state symptom vs goal vs "
     "non-goals; (3) select the execution strategy from the skill's "
     "research-backed table (/refine skill §5) — match the task's "
     "characteristics, never stack scaffolding a task doesn't exhibit "
@@ -96,11 +98,12 @@ _INSTRUCTION_REFS = (
 _INSTRUCTION_GROUND = (
     "<refine-gate>This prompt requests work but names no concrete "
     "artifact (no file path, commit, or line ref). Before executing, "
-    "apply the /refine procedure (the session-optimizer /refine skill): "
+    "apply the /refine procedure (the refine-gate /refine skill): "
     "(1) bind every named system, component, variable, or concept to "
     "its actual code artifact (which module IS 'the X system'? which "
-    "field/code path IS that variable?) using cortex:recall, grep, "
-    "and the knowledge graph — a name can map to several artifacts, "
+    "field/code path IS that variable?) using grep, git history, and "
+    "your memory layer's recall tool when one is installed "
+    "— a name can map to several artifacts, "
     "and picking the wrong one solves the wrong problem; (2) recall "
     "prior decisions and failed attempts on those artifacts; (3) "
     "state symptom vs goal vs non-goals; (4) select the execution "

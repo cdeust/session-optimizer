@@ -1,18 +1,48 @@
-> Version française : [README-statusline.fr.md](README-statusline.fr.md)
+> Version française : [README.fr.md](README.fr.md)
 
-# Zetetic statusline — Claude Code
+# statusline — Claude Code
 
 Multi-line statusline (Catppuccin Mocha) with RGB-gradient bars, monthly
-cost tracking, and per-person target gauges.
+cost tracking, per-session telemetry, and rate-limit gauges.
 
-## Files
+## Install
+
+```
+/plugin marketplace add cdeust/session-optimizer
+/plugin install statusline@session-optimizer-marketplace
+```
+
+Then ask Claude to **"install the statusline"** — the bundled `statusline`
+skill copies the assets into `~/.claude/` and wires `statusLine` in
+`~/.claude/settings.json` (backups included, config files never
+overwritten). Restart Claude Code to activate. Requires `jq` and `python3`.
+
+A `SessionStart` hook keeps the code assets current after `plugin update`;
+your `statusline-budget.json` and `ctxguard-thresholds.json` are never
+touched automatically.
+
+<details>
+<summary>Manual install (without the plugin system)</summary>
+
+1. Copy the 5 files from `assets/` into `~/.claude/` and
+   `chmod +x ~/.claude/statusline-command.sh`.
+2. Declare the statusline in `~/.claude/settings.json`:
+   ```json
+   { "statusLine": { "type": "command", "command": "bash ~/.claude/statusline-command.sh", "padding": 1, "refreshInterval": 10 } }
+   ```
+3. Adapt `statusline-budget.json` to your own preferences.
+
+</details>
+
+## Files (bundled under `assets/`)
 
 | File | Role |
 |---|---|
 | `statusline-command.sh` | Rendering script (called by Claude Code on every refresh). |
 | `statusline-costs.py` | Cost aggregator (scans `~/.claude/projects/**/*.jsonl`, 1 h cache). |
 | `statusline-transcript.py` | Per-session telemetry (tok/s, compactions, response age, last_ts) — reverse-tail + incremental scan, short cache (15 s, in the background). |
-| `statusline-budget.json` | **Personal** config: monthly targets, cache TTL, display size. |
+| `statusline-budget.json` | **Personal** config: cache TTL, display size. |
+| `ctxguard-thresholds.json` | Per-model context thresholds — **shared** with the context-guard plugin (see below). |
 
 ## Segments
 
@@ -22,6 +52,9 @@ cost tracking, and per-person target gauges.
   recently touched sub-repo when the cwd is not a repository.
 - **Session**: context bar 🧠, tokens, `💰` cost, `⏱` duration, rate limits
   🚀/🌟, churn ✏️.
+- **Subagents**: live spend `🤖N · tokens · $cost`, read from the aggregate
+  maintained by the context-guard plugin's `SubagentStop` tracker when that
+  plugin is installed (segment stays empty otherwise).
 - **Telemetry** (m+): `⚡ t/s` (throughput of the last turn — wall-clock,
   includes tool latency ⇒ lower bound), `🕑` age of the last response, `❄`
   prompt-cache countdown (red = `cold`), `🗜` context compactions.
@@ -31,14 +64,15 @@ cost tracking, and per-person target gauges.
   a compact inline version on the session line. Followed by a **cost
   reference** line (informative, not a cap): `💰 $/month · 🤖 $/run`.
 
-## Installation
+## Shared thresholds with context-guard
 
-1. Copy the 4 files into `~/.claude/`.
-2. Declare the statusline in `~/.claude/settings.json`:
-   ```json
-   { "statusLine": { "type": "command", "command": "~/.claude/statusline-command.sh" } }
-   ```
-3. Adapt `statusline-budget.json` to your own targets.
+The context bar's green → yellow → red scale is driven by
+`~/.claude/ctxguard-thresholds.json` — a **shared-file convention** with the
+[context-guard](../context-guard) plugin's Stop hook. One file, two
+consumers: the statusline is the passive visual warning, the Stop guard the
+active enforcement, and editing the file moves both at once so they stay on
+par by construction. The install skill seeds the file if absent and never
+overwrites an existing copy.
 
 ## Display sizes (presets)
 
@@ -53,7 +87,6 @@ Setting: `STATUSLINE_SIZE` env variable, or the `"size"` field of `statusline-bu
   epoch in **seconds**. No absolute monthly budget: on a flat-rate plan, the
   constraint is the quota, not a spend in $/tokens.
 - Bars: continuous per-cell RGB interpolation (`grad_rgb`) green→yellow→peach→red.
-- Context thresholds: `~/.claude/ctxguard-thresholds.json` (shared with the stop-context-guard hook).
 - Telemetry: the `.py` runs in the background (lock + 15 s TTL) and writes a
   per-session cache (key = `transcript_path`); `🕑` and `❄` are recomputed live
   on every refresh from `last_ts`, so the countdown stays second-accurate

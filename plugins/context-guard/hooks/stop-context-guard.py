@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """stop-context-guard.py — Stop hook: enforce the token-budget checkpoint protocol.
 
-Contract (source of truth: agents/orchestrator.md <token-budget>):
+Contract:
 
   | Model              | Checkpoint (warn) | Hard cap (block) | Why                                  |
   |--------------------|-------------------|------------------|--------------------------------------|
@@ -27,15 +27,14 @@ Contract (source of truth: agents/orchestrator.md <token-budget>):
     - WARN <= ctx < HARD    -> write a free mechanical checkpoint stub (summary
                                schema) AND block the stop exactly once: the model
                                is instructed to spawn the `memory-writer` subagent
-                               (a normal Claude Code agent installed in
-                               ~/.claude/agents/, shipped in this repo under
-                               agents/) that persists the model's distilled
-                               summary into the memory store — scoped checkpoint
-                               via memory-tool.sh + durable facts via
-                               cortex:remember when the zetetic memory layer is
-                               present, stub-file fallback otherwise — then
-                               RESUME the user's task in-session (reflection,
-                               not a stop).
+                               (a normal Claude Code agent, shipped in this
+                               plugin under agents/) that persists the model's
+                               distilled summary — by default into the stub file
+                               itself (vanilla Claude Code, no extra tooling);
+                               when a scoped memory layer is detected at runtime
+                               (checkpoint_protocol.detect_memory_tool), into
+                               that store instead — then RESUME the user's task
+                               in-session (reflection, not a stop).
     - ctx >= HARD           -> write the stub AND block the stop exactly once,
                                injecting the checkpoint-finalize procedure so the
                                model persists the semantic checkpoint and signals
@@ -64,6 +63,16 @@ import os
 import subprocess
 import sys
 from datetime import datetime, timezone
+
+# The protocol text (generic vs scoped-memory-layer variants) lives in the
+# sibling checkpoint_protocol module, shipped in the same hooks/ directory.
+# Named failure mode: a manual install copied only this script. A Stop hook
+# must never fail hard, so degrade to inert rather than erroring every stop.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    import checkpoint_protocol
+except ImportError:
+    sys.exit(0)
 
 # --- Thresholds (tokens) -----------------------------------------------------
 # Single source of truth shared with statusline-command.sh. First substring
@@ -374,65 +383,6 @@ def _save_level(session_id: str, level: str) -> None:
         pass
 
 
-SCHEMA = (
-    "goals / file references (paths + line ranges) / errors and fixes / "
-    "current state / next steps — <=500 words total, quoted tool outputs "
-    "clipped to 2,000 chars"
-)
-
-
-def _warn_reason(ctx: int, stub_path: str, warn: int, hard: int) -> str:
-    return (
-        f"⚠ CHECKPOINT THRESHOLD — {ctx:,} input tokens "
-        f"(≥ {warn:,} for this model; hard stop at {hard:,}).\n"
-        f"This is a reflection pause, NOT the end of the session. While you still "
-        f"have headroom, persist the semantic checkpoint via a budgeted subagent, "
-        f"then resume the user's task:\n\n"
-        f"1. Distill the session into the summary schema ({SCHEMA}).\n"
-        f"2. Spawn the memory-writer subagent (Agent tool, subagent_type "
-        f"\"memory-writer\", or \"session-optimizer:memory-writer\" if only the "
-        f"plugin copy is installed). Pass it: your distilled summary, your "
-        f"memory scope + MEMORY_AGENT_ID (when the zetetic memory layer is "
-        f"present), and the checkpoint stub path {stub_path or 'n/a'}. It merges "
-        f"the summary into the schema and persists it to "
-        f"/memories/<your-scope>/checkpoint.md plus durable WHY-level facts via "
-        f"cortex:remember (agent_topic-scoped); without a memory layer it falls "
-        f"back to filling the stub file in place. Do not write the checkpoint "
-        f"yourself unless the spawn fails (agent not installed — it ships in "
-        f"session-optimizer under agents/memory-writer.md; install with /agents "
-        f"or copy it to ~/.claude/agents/).\n"
-        f"3. CONTINUE the user's task in this session. The hard cap at {hard:,} "
-        f"still applies; thanks to this reflection it should be a formality."
-    )
-
-
-def _block_reason(ctx: int, stub_path: str, hard: int) -> str:
-    return (
-        f"⚠ CONTEXT SOFT CAP REACHED — {ctx:,} input tokens "
-        f"(≥ {hard:,} session budget for this model).\n"
-        f"Continuing in this session now risks context poisoning, quota burn, and "
-        f"escalating per-turn cost. Execute the checkpoint protocol before yielding:\n\n"
-        f"1. Write (or update) your semantic checkpoint ({SCHEMA}): with the "
-        f"zetetic memory layer, MEMORY_AGENT_ID=<your-scope> "
-        f"tools/memory-tool.sh rethink /memories/<your-scope>/checkpoint.md — "
-        f"otherwise fill the stub file at "
-        f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place. "
-        f"If the WARN-time memory-writer already wrote it, update only what "
-        f"changed since.\n"
-        f"2. If important decisions are not yet durable, persist them now "
-        f"(cortex:remember, scoped to your agent_topic; without Cortex, fold "
-        f"them into the checkpoint's errors-and-fixes section).\n"
-        f"3. End your response with exactly:\n"
-        f"   CHECKPOINT — context cleared.\n"
-        f"   Resume from: <the checkpoint path you wrote>\n"
-        f"   Next action: <exact first thing to do on restart>\n"
-        f"Then instruct the user to run /clear and resume. Resume contract: the "
-        f"next session reads the checkpoint + at most ONE targeted search — it "
-        f"must NOT re-read files the checkpoint already summarizes.\n"
-        f"Do NOT start new substantive work in this session."
-    )
-
-
 def main():
     try:
         data = json.load(sys.stdin)
@@ -468,10 +418,21 @@ def main():
     _save_level(session_id, level)
     sub_line = _subagent_line(session_id)
 
+    # Runtime detection: the scoped-memory-layer wording is emitted only when
+    # the layer is actually installed; everyone else gets the stub-file
+    # protocol, which references vanilla Claude Code tools only.
+    scoped = checkpoint_protocol.detect_memory_tool(cwd) is not None
+    if scoped:
+        warn_reason = checkpoint_protocol.warn_reason_scoped
+        block_reason = checkpoint_protocol.block_reason_scoped
+    else:
+        warn_reason = checkpoint_protocol.warn_reason
+        block_reason = checkpoint_protocol.block_reason
+
     if level == "hard":
         _exit({
             "decision": "block",
-            "reason": _block_reason(ctx, stub_path, hard) + sub_line,
+            "reason": block_reason(ctx, stub_path, hard) + sub_line,
             "systemMessage": (
                 f"[context-guard] {ctx:,} tokens ≥ {hard:,} soft cap "
                 f"({model_id or 'model'}) — forcing a checkpoint before the "
@@ -481,7 +442,7 @@ def main():
     else:  # warn — one-time reflection block: persist memory while headroom remains
         _exit({
             "decision": "block",
-            "reason": _warn_reason(ctx, stub_path, warn, hard) + sub_line,
+            "reason": warn_reason(ctx, stub_path, warn, hard) + sub_line,
             "systemMessage": (
                 f"[context-guard] {ctx:,} tokens ≥ {warn:,} checkpoint threshold "
                 f"({(model_id or 'model')}) — spawning the memory-writer subagent to "

@@ -5,15 +5,15 @@
     "email": "admin@ai-architect.tools"
   },
   "metadata": {
-    "description": "Session optimizer: context-budget Stop guard, status line, and the refine gate (prompt → bound, research-backed execution contract).",
-    "version": "1.4.3"
+    "description": "Session optimizer, split into three independently installable plugins: context-guard (Stop-hook context budget + memory-writer checkpoint subagent + subagent spend tracker), refine-gate (UserPromptSubmit prompt-binding gate + /refine skill), and statusline (multi-line status bar + install skill).",
+    "version": "2.0.0"
   },
   "plugins": [
     {
-      "name": "session-optimizer",
-      "source": "./",
-      "description": "Context-budget Stop guard + status line for long Claude Code sessions, plus the refine gate: a UserPromptSubmit hook and /refine skill that resolve vague prompt references (\"the X solution\", \"the heat variable\", \"like before\") to concrete artifacts with evidence, then select an execution strategy from a research-backed table (15 strategies verified against 2024-2026 literature, counter-evidence included: intrinsic self-correction degrades reasoning arXiv:2310.01798; CoT marginal on reasoning models; multi-agent failure taxonomy MAST). Acceptance criteria must be external signals - tests, measurements, sources - never the model re-checking itself.",
-      "version": "1.4.3",
+      "name": "context-guard",
+      "source": "./plugins/context-guard",
+      "description": "Context-budget guard: a Stop hook enforces a per-model checkpoint protocol — at the WARN threshold it writes a mechanical checkpoint stub and delegates persistence to a budgeted memory-writer subagent as a reflection pause, at the hard cap it forces checkpoint-then-clear. A SubagentStop tracker surfaces true session spend (main thread + subagents). Default protocol uses only vanilla Claude Code; a scoped memory layer is detected at runtime when installed.",
+      "version": "2.0.0",
       "author": {
         "name": "Clement Deust",
         "email": "admin@ai-architect.tools"
@@ -26,15 +26,76 @@
         "context-window",
         "token-budget",
         "checkpoint",
-        "statusline",
+        "stop-hook",
+        "subagent-cost",
         "session-management"
       ],
-      "category": "productivity",
-      "runtime": [
-        "cli",
-        "cowork"
+      "category": "productivity"
+    },
+    {
+      "name": "refine-gate",
+      "source": "./plugins/refine-gate",
+      "description": "Prompt-binding gate: a UserPromptSubmit hook + /refine skill that resolve vague prompt references (\"the X solution\", \"like before\", \"still broken\") to concrete artifacts with evidence, then select an execution strategy from a research-backed table (15 strategies verified against 2024-2026 literature, counter-evidence included: intrinsic self-correction degrades reasoning arXiv:2310.01798; CoT marginal on reasoning models; multi-agent failure taxonomy MAST). Acceptance criteria must be external signals - tests, measurements, sources - never the model re-checking itself.",
+      "version": "2.0.0",
+      "author": {
+        "name": "Clement Deust",
+        "email": "admin@ai-architect.tools"
+      },
+      "homepage": "https://github.com/cdeust/session-optimizer",
+      "repository": "https://github.com/cdeust/session-optimizer",
+      "license": "MIT",
+      "keywords": [
+        "claude-code",
+        "prompt-engineering",
+        "refine",
+        "intent-binding",
+        "userpromptsubmit",
+        "execution-strategy"
       ],
-      "runtime_notes": "Hooks (Stop guard, refine gate) and the statusline run wherever Claude Code plugins run: CLI, desktop app, IDE extensions, and Cowork. The claude.ai chat / Claude Desktop chat surface has no hook mechanism - there, upload skills/refine/ as an Agent Skill (same SKILL.md format): the /refine procedure travels, the automatic per-prompt gate does not."
+      "category": "productivity"
+    },
+    {
+      "name": "statusline",
+      "source": "./plugins/statusline",
+      "description": "Multi-line Claude Code statusline with RGB-gradient context bars tied to per-model checkpoint thresholds (shared with context-guard), monthly cost tracking, per-session telemetry, rate-limit gauges, and live subagent spend. Ships an install skill that copies the bundled assets into ~/.claude and wires settings.json.",
+      "version": "2.0.0",
+      "author": {
+        "name": "Clement Deust",
+        "email": "admin@ai-architect.tools"
+      },
+      "homepage": "https://github.com/cdeust/session-optimizer",
+      "repository": "https://github.com/cdeust/session-optimizer",
+      "license": "MIT",
+      "keywords": [
+        "statusline",
+        "status",
+        "context",
+        "git",
+        "cost",
+        "rate-limits",
+        "telemetry",
+        "ui"
+      ],
+      "category": "productivity"
+    },
+    {
+      "name": "session-optimizer",
+      "source": "./",
+      "description": "DEPRECATED meta plugin (v2.0.0). session-optimizer split into three independently installable plugins: context-guard, refine-gate, and statusline. This shim registers no functional hooks — it only announces the migration at session start. Install the three plugins from this marketplace, then uninstall session-optimizer.",
+      "version": "2.0.0",
+      "author": {
+        "name": "Clement Deust",
+        "email": "admin@ai-architect.tools"
+      },
+      "homepage": "https://github.com/cdeust/session-optimizer",
+      "repository": "https://github.com/cdeust/session-optimizer",
+      "license": "MIT",
+      "keywords": [
+        "deprecated",
+        "meta",
+        "session-management"
+      ],
+      "category": "productivity"
     }
   ]
 }
