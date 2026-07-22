@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Refine gate contract tests
+        run: pytest tests/test_refine_gate.py -v
+
+      - name: Subagent tracker tests
+        run: pytest tests/test_subagent_usage.py -v
+
+      - name: Statusline unit tests
+        run: bash tests/statusline/test_heat_rgb.sh
+
+      - name: Shellcheck statusline script
+        run: shellcheck statusline-command.sh
+
+      - name: Validate hook and plugin JSON
+        run: |
+          python -m json.tool .claude-plugin/plugin.json > /dev/null
+          python -m json.tool hooks/hooks.json > /dev/null
