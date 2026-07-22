@@ -1,62 +1,64 @@
-# Statusline zététique — Claude Code
+> Version française : [README-statusline.fr.md](README-statusline.fr.md)
 
-Statusline multi-lignes (Catppuccin Mocha) avec barres en dégradé RGB, suivi
-de coûts mensuels et jauges d'objectifs par personne.
+# Zetetic statusline — Claude Code
 
-## Fichiers
+Multi-line statusline (Catppuccin Mocha) with RGB-gradient bars, monthly
+cost tracking, and per-person target gauges.
 
-| Fichier | Rôle |
+## Files
+
+| File | Role |
 |---|---|
-| `statusline-command.sh` | Script de rendu (appelé par Claude Code à chaque refresh). |
-| `statusline-costs.py` | Agrégateur de coûts (scan `~/.claude/projects/**/*.jsonl`, cache 1 h). |
-| `statusline-transcript.py` | Télémétrie par session (tok/s, compactions, âge réponse, last_ts) — reverse-tail + scan incrémental, cache court (15 s, en arrière-plan). |
-| `statusline-budget.json` | Config **personnelle** : objectifs mensuels, TTL cache, taille d'affichage. |
+| `statusline-command.sh` | Rendering script (called by Claude Code on every refresh). |
+| `statusline-costs.py` | Cost aggregator (scans `~/.claude/projects/**/*.jsonl`, 1 h cache). |
+| `statusline-transcript.py` | Per-session telemetry (tok/s, compactions, response age, last_ts) — reverse-tail + incremental scan, short cache (15 s, in the background). |
+| `statusline-budget.json` | **Personal** config: monthly targets, cache TTL, display size. |
 
 ## Segments
 
-- **Identité** : modèle, effort, thinking 💡, dossier.
-- **Git** : branche 🌿 + dirty `✗`, `↑n ↓n` (avance/retard vs upstream), `⚠n`
-  (conflits), décompo `!M +A ✘D ?U` (m+). Repli `@repo` sur le sous-repo le plus
-  récent quand le cwd n'est pas un dépôt.
-- **Session** : barre contexte 🧠, tokens, `💰` coût, `⏱` durée, rate-limits
+- **Identity**: model, effort, thinking 💡, folder.
+- **Git**: branch 🌿 + dirty `✗`, `↑n ↓n` (ahead/behind vs upstream), `⚠n`
+  (conflicts), breakdown `!M +A ✘D ?U` (m+). Falls back to `@repo` on the most
+  recently touched sub-repo when the cwd is not a repository.
+- **Session**: context bar 🧠, tokens, `💰` cost, `⏱` duration, rate limits
   🚀/🌟, churn ✏️.
-- **Télémétrie** (m+) : `⚡ t/s` (débit du dernier tour — wall-clock, inclut la
-  latence outils ⇒ borne basse), `🕑` âge dernière réponse, `❄` compte à rebours
-  du cache de prompt (rouge = `cold`), `🗜` compactions de contexte.
-- **Quota** (l+) : jauges 🎯 `🚀 5h` et `🌟 7d` = % du quota rate-limit Pro/Max
-  consommé (la vraie contrainte « ne pas dépasser » ; 100 % = lockout), avec
-  reset. Couleurs : vert < 50, jaune 50–79, rouge ≥ 80. Au preset `m`, version
-  inline compacte sur la ligne session. Suivi d'une ligne **référence coût**
-  (informative, pas un plafond) : `💰 $/mois · 🤖 $/run`.
+- **Telemetry** (m+): `⚡ t/s` (throughput of the last turn — wall-clock,
+  includes tool latency ⇒ lower bound), `🕑` age of the last response, `❄`
+  prompt-cache countdown (red = `cold`), `🗜` context compactions.
+- **Quota** (l+): 🎯 gauges `🚀 5h` and `🌟 7d` = % of the Pro/Max rate-limit
+  quota consumed (the real "do not exceed" constraint; 100% = lockout), with
+  reset time. Colors: green < 50, yellow 50–79, red ≥ 80. At the `m` preset,
+  a compact inline version on the session line. Followed by a **cost
+  reference** line (informative, not a cap): `💰 $/month · 🤖 $/run`.
 
 ## Installation
 
-1. Copier les 4 fichiers dans `~/.claude/`.
-2. Déclarer la statusline dans `~/.claude/settings.json` :
+1. Copy the 4 files into `~/.claude/`.
+2. Declare the statusline in `~/.claude/settings.json`:
    ```json
    { "statusLine": { "type": "command", "command": "~/.claude/statusline-command.sh" } }
    ```
-3. Adapter `statusline-budget.json` à ses propres objectifs.
+3. Adapt `statusline-budget.json` to your own targets.
 
-## Tailles d'affichage (presets)
+## Display sizes (presets)
 
-`xs` (1 ligne) · `s` (2) · `m` (3) · `l` (5, défaut) · `xl` (5, barres larges + moyenne/mo).
+`xs` (1 line) · `s` (2) · `m` (3) · `l` (5, default) · `xl` (5, wide bars + monthly average).
 
-Réglage : variable d'env `STATUSLINE_SIZE`, ou champ `"size"` de `statusline-budget.json`.
+Setting: `STATUSLINE_SIZE` env variable, or the `"size"` field of `statusline-budget.json`.
 
-## Notes techniques
+## Technical notes
 
-- `.rate_limits.{five_hour,seven_day}` (comptes Pro/Max) : `used_percentage` est
-  déjà un ratio du quota → pilote directement les jauges 🎯 ; `resets_at` = epoch
-  en **secondes**. Pas de budget mensuel absolu : sur un forfait flat-rate, la
-  contrainte est le quota, pas une dépense en $/tokens.
-- Barres : interpolation RGB continue par cellule (`grad_rgb`) vert→jaune→pêche→rouge.
-- Seuils de contexte : `~/.claude/ctxguard-thresholds.json` (partagés avec le hook stop-context-guard).
-- Télémétrie : le `.py` tourne en arrière-plan (lock + TTL 15 s) et écrit un cache
-  par session (clé = `transcript_path`) ; `🕑` et `❄` sont recalculés en direct à
-  chaque refresh depuis `last_ts`, donc le décompte reste à la seconde entre deux
-  scans. JSONL append-only ⇒ le compte de compactions est incrémental (scan des
-  octets ajoutés `[prev_size, size)` uniquement).
-- `cache_ttl_min` : 5 (défaut Pro) ou 60 (Max) — source : docs Anthropic
-  prompt-caching (TTL 5 min par défaut). Inspirations : `CCometixLine`
-  (git ahead/behind + conflits), `claude-hud` (tok/s, compactions, cache TTL).
+- `.rate_limits.{five_hour,seven_day}` (Pro/Max accounts): `used_percentage` is
+  already a ratio of the quota → drives the 🎯 gauges directly; `resets_at` =
+  epoch in **seconds**. No absolute monthly budget: on a flat-rate plan, the
+  constraint is the quota, not a spend in $/tokens.
+- Bars: continuous per-cell RGB interpolation (`grad_rgb`) green→yellow→peach→red.
+- Context thresholds: `~/.claude/ctxguard-thresholds.json` (shared with the stop-context-guard hook).
+- Telemetry: the `.py` runs in the background (lock + 15 s TTL) and writes a
+  per-session cache (key = `transcript_path`); `🕑` and `❄` are recomputed live
+  on every refresh from `last_ts`, so the countdown stays second-accurate
+  between two scans. JSONL is append-only ⇒ the compaction count is incremental
+  (scans only the appended bytes `[prev_size, size)`).
+- `cache_ttl_min`: 5 (Pro default) or 60 (Max) — source: Anthropic
+  prompt-caching docs (5 min TTL by default). Inspirations: `CCometixLine`
+  (git ahead/behind + conflicts), `claude-hud` (tok/s, compactions, cache TTL).

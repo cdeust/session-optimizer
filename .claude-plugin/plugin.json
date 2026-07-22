@@ -19,41 +19,5 @@
     "prompt-engineering",
     "refine",
     "intent-binding"
-  ],
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop-context-guard.py",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/subagent-tracker.py",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/refine_gate.py",
-            "timeout": 5,
-            "statusMessage": "refine gate: checking for unbound references"
-          }
-        ]
-      }
-    ]
-  }
+  ]
 }

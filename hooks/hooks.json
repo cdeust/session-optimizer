@@ -21,6 +21,18 @@
           }
         ]
       }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/refine_gate.py",
+            "timeout": 5,
+            "statusMessage": "refine gate: checking for unbound references"
+          }
+        ]
+      }
     ]
   }
 }

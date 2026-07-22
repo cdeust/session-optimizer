@@ -244,8 +244,8 @@ python3 tools/subagent_usage.py --json               # machine-readable
 
 ### Install
 
-Add the `SubagentStop` entry from `hooks/hooks.json` (or the plugin's
-`plugin.json`) to your settings; `subagent-tracker.py` imports the shared core
+Add the `SubagentStop` entry from `hooks/hooks.json` to your settings;
+`subagent-tracker.py` imports the shared core
 from the sibling `tools/` directory, so keep them under the same plugin root.
 
 ### Test
