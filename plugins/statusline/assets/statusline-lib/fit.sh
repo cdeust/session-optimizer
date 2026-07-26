@@ -20,12 +20,31 @@
 # lowest-priority segments itself.
 
 # Share of the terminal width a line may occupy. Lines are fitted to a fraction
-# of the width rather than to the width itself: a line that reaches the right
-# margin is truncated by the host and can cost the block a row.
-# source: pictet-tech claude-statusline assets/statusline.sh:98-108 ("If line1
-# approaches cols, Claude Code renders '…' at the right margin AND drops the
-# second status line"), whose 85% target this reuses unchanged — an inherited
-# measured claim, not one re-measured here.
+# of the width rather than to the width itself, because the host keeps part of
+# the row for its own chrome and cuts whatever crosses into it.
+#
+# NOT A MEASURED CONSTANT — read this before trusting it. 85 is inherited from
+# the pictet-tech claude-statusline plugin (assets/statusline.sh:98-108), which
+# is no longer installed here and can no longer be consulted. Its claim — that a
+# line approaching the full width is truncated with "…" AND costs the block its
+# second row — has never been reproduced against the host by this repo. The
+# value is a working default carried forward, not evidence.
+#
+# What IS established, source: code.claude.com/docs/en/statusline, read
+# 2026-07-26 against Claude Code 2.1.220 — the reserve the host takes is
+# ADDITIVE, not proportional. `statusLine.padding` is "extra horizontal spacing
+# (in characters)", defaults to 0, and is "in addition to the interface's
+# built-in spacing", whose column count the docs do not publish. A percentage
+# therefore models the constraint in the wrong shape: it over-reserves on wide
+# terminals and under-reserves on narrow ones.
+#
+# Known cost of keeping the ratio, so the next reader is not surprised by it:
+# tests/statusline/measure_widths.sh puts preset l's widest line at 89 columns
+# (measured 2026-07-26), so at 85% l needs 104 columns to render untrimmed —
+# while SIZE_L_MIN_COLS in layout.sh selects l from 90 up. Between 90 and 104
+# columns l is selected and then trimmed on every refresh. Replacing this with a
+# measured additive reserve closes that gap and needs one observation against a
+# live host; it is deliberately not done here.
 FIT_RATIO=85
 
 # vislen — terminal columns a rendered segment will occupy.
