@@ -14,28 +14,46 @@
 
 # probe_cols — the terminal's width in columns.
 # post: prints a positive integer, always.
-# The statusLine JSON carries no terminal size, so it is probed. Every source
-# below is a real measurement of a real terminal; when none of them can answer,
-# the fallback is deliberately WIDE. An over-generous guess reproduces exactly
-# the pre-width-aware behaviour, whereas an over-tight one hides information
-# that would have fitted — so a guess is never preferred to no answer.
-# In particular `tput cols` is consulted only when stdout is a terminal: with
-# stdout on a pipe (which is how the host captures this script) tput cannot
-# query anything and returns terminfo's blind default of 80, which would
-# silently downgrade the preset on every IDE and web host.
+# The statusLine JSON carries no terminal size (verified 2026-07-26 by capturing
+# a live payload: it has no columns/width/size field of any kind), so it is
+# probed. Every source below is a real measurement of a real terminal; when none
+# of them can answer, the fallback is deliberately WIDE. An over-generous guess
+# reproduces exactly the pre-width-aware behaviour, whereas an over-tight one
+# hides information that would have fitted — so a guess is never preferred to no
+# answer.
+#
+# $COLUMNS is consulted FIRST because the host sets it to the width it is itself
+# rendering into, which is the authority this budget needs — an inferred size
+# that disagrees with it is wrong by definition.
+#   source: code.claude.com/docs/en/statusline — "Claude Code sets these to the
+#   current terminal dimensions before running your script" (v2.1.153+), and
+#   Claude Code 2.1.220's hook spawn confirms it verbatim:
+#   `let {columns:N,rows:P}=process.stdout; if(N) L.COLUMNS=String(N)`.
+#
+# The controlling-tty probe is kept BELOW it, not removed: it is what answers
+# when the script is run by hand from a shell, or by a host too old to export
+# COLUMNS. Under the real host it answers nothing at all — the same 2026-07-26
+# capture found no controlling terminal in the hook environment, so `< /dev/tty`
+# fails and this rung falls straight through.
+#
+# `tput cols` is consulted only when stdout is a terminal: with stdout on a pipe
+# (which is how the host captures this script) tput cannot query anything and
+# returns terminfo's blind default of 80, which would silently downgrade the
+# preset on every IDE and web host.
 probe_cols() {
   # The override is an escape hatch, not an exemption from the postcondition: a
   # non-numeric or zero value falls through to the probes below rather than
   # being printed, which would break every arithmetic comparison downstream.
   local cols="${STATUSLINE_COLS:-}"
   case "$cols" in ''|*[!0-9]*|0) ;; *) printf '%s' "$cols"; return ;; esac
-  # stdin is the JSON pipe, so the size is read from the controlling tty. The
-  # stderr redirect wraps the whole group, not just stty: with no controlling
+  cols="${COLUMNS:-}"
+  # The stderr redirect wraps the whole group, not just stty: with no controlling
   # terminal it is the "< /dev/tty" REDIRECTION that fails, and the shell
   # reports that itself before stty ever runs, so a 2>/dev/null on the command
   # alone would still leak "Device not configured" on every refresh.
-  cols=$( { stty size < /dev/tty | awk '{print $2}'; } 2>/dev/null )
-  case "$cols" in ''|*[!0-9]*|0) cols="${COLUMNS:-}" ;; esac
+  case "$cols" in ''|*[!0-9]*|0)
+    cols=$( { stty size < /dev/tty | awk '{print $2}'; } 2>/dev/null ) ;;
+  esac
   case "$cols" in ''|*[!0-9]*|0) [ -t 1 ] && cols=$(tput cols 2>/dev/null) ;; esac
   case "$cols" in ''|*[!0-9]*|0) cols=200 ;; esac
   printf '%s' "$cols"
@@ -73,17 +91,20 @@ probe_cols() {
 # fit — and never picks xs or m, which are line-count preferences to be pinned
 # explicitly, not narrow-terminal fallbacks.
 #
-# The threshold is l's widest measured line rounded up (89 -> 90), compared
-# against the RAW width rather than the fitted budget: above it, l is at worst
-# lightly trimmed inside the FIT_RATIO headroom, which is precisely fit_line's
-# job; below it the preset is structurally too wide and a real downgrade is the
-# honest answer. The measurement anchors the threshold; it does not guarantee it
-# — a long branch name or a deep directory widens any preset, and fit_line is
-# what actually holds the line to the terminal.
-SIZE_L_MIN_COLS=90
+# The threshold is l's widest measured line exactly, compared against the fitted
+# BUDGET (fit_budget in fit.sh) rather than the raw terminal width: the budget is
+# the room a line actually gets, so "budget >= widest line" is precisely the
+# condition for l to render untrimmed, and the two constants cannot disagree.
+# Comparing against the raw width instead would select l on terminals whose
+# budget cannot hold it, and trim it on every refresh.
+# The measurement anchors the threshold; it does not guarantee it — a long branch
+# name or a deep directory widens any preset, and fit_line is what actually holds
+# the line to the terminal.
+SIZE_L_MIN_BUDGET=89
 
-# resolve_preset — choose the verbosity preset for a terminal $1 columns wide.
-# pre:  $1 a positive integer column count.
+# resolve_preset — choose the verbosity preset for a line budget of $1 columns.
+# pre:  $1 a positive integer, the per-line budget from fit_budget — NOT the raw
+#       terminal width. See SIZE_L_MIN_BUDGET above for why.
 # post: sets SIZE (xs|s|m|l|xl), RANK (0..4, the preset as an ordered level),
 #       CTX_W (context bar cells) and BW (quota bar cells). Returns 0.
 resolve_preset() {
@@ -96,7 +117,7 @@ resolve_preset() {
       case "$SIZE" in xs|s|m|l|xl) ;; *) SIZE="l" ;; esac
       # width cap, downward only: "s" is the one preset narrower than "l"
       # (measured 64 cols vs 89 — see the table above).
-      [ "$cols" -lt "$SIZE_L_MIN_COLS" ] && case "$SIZE" in m|l|xl) SIZE="s" ;; esac
+      [ "$cols" -lt "$SIZE_L_MIN_BUDGET" ] && case "$SIZE" in m|l|xl) SIZE="s" ;; esac
     ;;
   esac
   case "$SIZE" in

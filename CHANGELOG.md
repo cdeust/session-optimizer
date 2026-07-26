@@ -5,6 +5,43 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-07-26
+
+Statusline only. No change to context-guard or refine-gate.
+
+### Fixed
+
+- **The line-width budget is now the host's actual reserve, not a 15% haircut.**
+  `FIT_RATIO=85` held every line to 85% of the terminal, a figure inherited from
+  an unrelated plugin and never verified here. The reserve Claude Code takes is
+  additive, and it is now read from the host itself (2.1.220): 4 columns of
+  container padding (`<Box paddingLeft={2} paddingRight={2}>`) plus
+  `statusLine.padding` on both sides. On a 200-column terminal a line may now use
+  196 columns instead of 170; narrow terminals reserve less than before.
+- **Preset selection no longer contradicts the budget.** The verbosity preset is
+  chosen on the fitted budget rather than the raw width. Previously `l` was
+  selected from 90 columns up but could not render untrimmed below 104, so
+  between those widths it was selected and then trimmed on every refresh.
+- **`$COLUMNS` is consulted before the controlling tty.** The host sets it to the
+  width it renders into, which is the authority; the tty probe stays as the
+  fallback for hand-run invocations. Under the host the tty probe answers nothing
+  at all — there is no controlling terminal in the hook environment.
+
+### Notes
+
+- The claim that an over-wide first line drops the second status line is false
+  for 2.1.220: each line is rendered `<Text wrap="truncate">` independently.
+
+### Internal
+
+- `test_perf_heat_rgb_20run_avg` was flaky (~4 runs in 10) and asserted nothing:
+  it compared one sample of `heat_rgb` against the mean of twenty more of the
+  same call, so the delta was noise around zero, and per-sample `date +%s%N`
+  forks vary by ~19 ms on the measurement host — four times the 5 ms budget
+  being asserted. It now times a block of 2000 calls against an equally-sized
+  no-op control, amortizing the fork: `heat_rgb` measures 0.13 ms above the
+  control against the same 5 ms budget.
+
 ## [2.1.0] - 2026-07-26
 
 Statusline only. No change to context-guard or refine-gate.

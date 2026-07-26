@@ -127,8 +127,12 @@ read_transcript_telemetry "$transcript_path" "$now_epoch"   # -> txt_*
 read_subagent_totals "$session_id"       # -> sub_count sub_tokens
 
 COLS=$(probe_cols)
-FIT_W=$(( COLS * FIT_RATIO / 100 ))
-resolve_preset "$COLS"                   # -> SIZE RANK CTX_W BW
+FIT_W=$(fit_budget "$COLS" "$(read_statusline_padding)")
+# The preset is chosen on the BUDGET, not the raw width: what decides whether a
+# preset fits is the room its lines actually get, which is the width less the
+# host's chrome (fit.sh). Choosing on the raw width would select a preset the
+# budget then trims on every refresh.
+resolve_preset "$FIT_W"                  # -> SIZE RANK CTX_W BW
 
 # --- Emit (%b interprets ANSI escapes; data is in args, not the format) ---
 # One concern per line; empty lines are skipped so the block stays compact.

@@ -130,14 +130,21 @@ Chaque ligne est ajustée au terminal. Le preset de verbosité est le réglage
 grossier (combien de **lignes**), `fit_line` le réglage fin : il retire les
 segments de plus faible priorité en fin de ligne jusqu'à ce qu'elle rentre. Les
 lignes sont construites du plus important au moins important, donc **c'est la
-queue qui part**. Les lignes sont tenues à 85 % de la largeur et non 100 % : une
-ligne qui atteint la marge droite est tronquée par l'hôte et peut coûter une
-rangée au bloc entier.
+queue qui part**.
 
-La largeur est sondée depuis le tty de contrôle, puis `$COLUMNS`, puis
-`tput cols` (uniquement quand stdout est un terminal — sur un tube il renvoie le
-80 aveugle de terminfo). Quand rien ne répond, le repli est volontairement large.
-Surchargeable par `$STATUSLINE_COLS`.
+Le budget est la largeur du terminal moins ce que l'hôte garde pour lui : 4
+colonnes de marge du conteneur, plus `statusLine.padding` compté deux fois
+(l'hôte l'applique des deux côtés). Ces deux chiffres sont lus dans le rendu de
+Claude Code 2.1.220 lui-même, qui enveloppe le bloc dans
+`<Box paddingLeft={2} paddingRight={2}>` et chaque ligne dans
+`<Text wrap="truncate">` — une ligne trop large est donc tronquée **seule** et ne
+coûte jamais une rangée au bloc.
+
+La largeur est sondée depuis `$COLUMNS` d'abord — l'hôte y met la largeur dans
+laquelle il rend — puis le tty de contrôle, puis `tput cols` (uniquement quand
+stdout est un terminal ; sur un tube il renvoie le 80 aveugle de terminfo). Quand
+rien ne répond, le repli est volontairement large. Surchargeable par
+`$STATUSLINE_COLS`.
 
 ## Seuils partagés avec context-guard
 

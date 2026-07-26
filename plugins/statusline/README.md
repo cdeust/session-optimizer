@@ -123,14 +123,19 @@ wildly on a single burst.
 Every line is fitted to the terminal. The verbosity preset is the coarse
 adjustment (how many **lines**), and `fit_line` is the fine one: it drops each
 line's lowest-priority trailing segments until the line fits. Lines are built
-most-important-first, so **the tail is what goes**. Lines are held to 85% of the
-width rather than 100%: a line that reaches the right margin is truncated by the
-host and can cost the block a row.
+most-important-first, so **the tail is what goes**.
 
-Width is probed from the controlling tty, then `$COLUMNS`, then `tput cols`
-(only when stdout is a terminal — on a pipe it returns terminfo's blind 80).
-When nothing can answer, the fallback is deliberately wide. Override with
-`$STATUSLINE_COLS`.
+The budget is the terminal width minus what the host keeps for itself: 4 columns
+of container padding, plus `statusLine.padding` twice over (the host applies it
+on both sides). Both figures are read from Claude Code 2.1.220's own renderer,
+which wraps the block in `<Box paddingLeft={2} paddingRight={2}>` and each line
+in `<Text wrap="truncate">` — so an over-wide line is truncated **on its own**
+and never costs the block another row.
+
+Width is probed from `$COLUMNS` first — the host sets it to the width it is
+rendering into — then the controlling tty, then `tput cols` (only when stdout is
+a terminal; on a pipe it returns terminfo's blind 80). When nothing can answer,
+the fallback is deliberately wide. Override with `$STATUSLINE_COLS`.
 
 ## Shared thresholds with context-guard
 
