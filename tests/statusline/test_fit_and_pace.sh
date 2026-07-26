@@ -305,8 +305,9 @@ function test_probe_cols_env_override_wins() {
 # The postcondition is "a positive integer, always". The override is an escape
 # hatch, not an exemption: garbage must fall through to the probes, never reach
 # the caller, where it would break the arithmetic width comparisons.
-# shellcheck disable=SC2329  # The stubs below ARE invoked — by name
-# shadowing from inside probe_cols, which shellcheck cannot follow.
+# shellcheck disable=SC2329,SC2317  # The stubs below ARE invoked — by name
+# shadowing from inside probe_cols, which shellcheck cannot follow. Both
+# codes are listed: it reports this as SC2317 before 0.11.0, SC2329 after.
 function test_probe_cols_rejects_a_non_numeric_override() {
   local out
   for bad in "abc" "0" "-5" "80x24" " "; do
@@ -317,8 +318,9 @@ function test_probe_cols_rejects_a_non_numeric_override() {
   return 0
 }
 
-# shellcheck disable=SC2329  # The stubs below ARE invoked — by name
-# shadowing from inside probe_cols, which shellcheck cannot follow.
+# shellcheck disable=SC2329,SC2317  # The stubs below ARE invoked — by name
+# shadowing from inside probe_cols, which shellcheck cannot follow. Both
+# codes are listed: it reports this as SC2317 before 0.11.0, SC2329 after.
 function test_probe_cols_falls_back_to_columns_when_the_tty_is_unreadable() {
   local out
   out=$(stty() { return 1; }; unset STATUSLINE_COLS; COLUMNS=137; probe_cols)
@@ -335,8 +337,9 @@ function test_probe_cols_falls_back_to_columns_when_the_tty_is_unreadable() {
 # session. It must NOT be consulted, so the answer here is the wide fallback and
 # never the stub's 80. Command substitution puts stdout on a pipe, so this is
 # the real condition, not a simulated one.
-# shellcheck disable=SC2329  # The stubs below ARE invoked — by name
-# shadowing from inside probe_cols, which shellcheck cannot follow.
+# shellcheck disable=SC2329,SC2317  # The stubs below ARE invoked — by name
+# shadowing from inside probe_cols, which shellcheck cannot follow. Both
+# codes are listed: it reports this as SC2317 before 0.11.0, SC2329 after.
 function test_probe_cols_ignores_tput_when_stdout_is_not_a_terminal() {
   local out
   out=$(stty() { return 1; }; tput() { printf '80'; }
@@ -349,8 +352,9 @@ function test_probe_cols_ignores_tput_when_stdout_is_not_a_terminal() {
 # When nothing can answer, the guess is deliberately WIDE: an over-generous
 # width reproduces the pre-width-aware rendering, an over-tight one hides
 # information that would have fitted.
-# shellcheck disable=SC2329  # The stubs below ARE invoked — by name
-# shadowing from inside probe_cols, which shellcheck cannot follow.
+# shellcheck disable=SC2329,SC2317  # The stubs below ARE invoked — by name
+# shadowing from inside probe_cols, which shellcheck cannot follow. Both
+# codes are listed: it reports this as SC2317 before 0.11.0, SC2329 after.
 function test_probe_cols_final_fallback_is_wide() {
   local out
   out=$(stty() { return 1; }; tput() { return 1; }
