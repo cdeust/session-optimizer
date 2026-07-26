@@ -19,33 +19,44 @@
 # the terminal cut mid-word, the renderer measures each line and drops its
 # lowest-priority segments itself.
 
-# Share of the terminal width a line may occupy. Lines are fitted to a fraction
-# of the width rather than to the width itself, because the host keeps part of
-# the row for its own chrome and cuts whatever crosses into it.
+# Columns the host keeps for itself around this script's output, EXCLUDING the
+# user-configurable statusLine.padding (fit_budget adds that separately).
 #
-# NOT A MEASURED CONSTANT — read this before trusting it. 85 is inherited from
-# the pictet-tech claude-statusline plugin (assets/statusline.sh:98-108), which
-# is no longer installed here and can no longer be consulted. Its claim — that a
-# line approaching the full width is truncated with "…" AND costs the block its
-# second row — has never been reproduced against the host by this repo. The
-# value is a working default carried forward, not evidence.
+# source: Claude Code 2.1.220, /Users/…/.local/share/claude/versions/2.1.220,
+# read 2026-07-26. The status line is rendered by a component whose container is
+#   <Box width={columns} flexDirection={…} flexWrap="wrap" alignItems="flex-start"
+#        paddingLeft={2} paddingRight={compact ? 1 : 2} columnGap={1}>
+# so the row is the full terminal width less 2 columns on the left and 2 on the
+# right — 4. The compact branch reserves 1 on the right, i.e. 3 total; the wider
+# of the two is used, because a budget that is one column pessimistic trims one
+# segment early, while one column optimistic is cut by the host.
 #
-# What IS established, source: code.claude.com/docs/en/statusline, read
-# 2026-07-26 against Claude Code 2.1.220 — the reserve the host takes is
-# ADDITIVE, not proportional. `statusLine.padding` is "extra horizontal spacing
-# (in characters)", defaults to 0, and is "in addition to the interface's
-# built-in spacing", whose column count the docs do not publish. A percentage
-# therefore models the constraint in the wrong shape: it over-reserves on wide
-# terminals and under-reserves on narrow ones.
-#
-# Known cost of keeping the ratio, so the next reader is not surprised by it:
-# tests/statusline/measure_widths.sh puts preset l's widest line at 89 columns
-# (measured 2026-07-26), so at 85% l needs 104 columns to render untrimmed —
-# while SIZE_L_MIN_COLS in layout.sh selects l from 90 up. Between 90 and 104
-# columns l is selected and then trimmed on every refresh. Replacing this with a
-# measured additive reserve closes that gap and needs one observation against a
-# live host; it is deliberately not done here.
-FIT_RATIO=85
+# The same read settles what happens on overflow, replacing an inherited claim
+# this repo could not reproduce: each emitted line is rendered as
+#   <Text dimColor wrap="truncate">
+# individually (single-line path, and the per-line map for multi-line output),
+# so an over-wide line is truncated ON ITS OWN and does NOT cost the block any
+# other row. Line count is independent of line width.
+FIT_CHROME_COLS=4
+
+# fit_budget — columns one rendered line may occupy.
+# pre:  $1 the terminal width in columns, $2 the configured statusLine.padding.
+#       Both are validated here rather than trusted: $1 comes from probe_cols,
+#       whose last rung is a fallback, and $2 from a user-edited settings file.
+# post: prints a positive integer, always. Pure: no I/O, no global mutation.
+# The host applies padding as Ink's paddingX, which indents BOTH sides, so the
+# configured value costs twice its own size. A terminal too narrow to hold even
+# one column after the reserve yields 1 rather than 0 or a negative: fit_line
+# treats a non-positive budget as "no budget" and returns the line untrimmed,
+# which is precisely the overflow this exists to prevent.
+fit_budget() {
+  local cols="$1" pad="${2:-0}" w
+  case "$cols" in ''|*[!0-9]*) printf '1'; return ;; esac
+  case "$pad" in ''|*[!0-9]*) pad=0 ;; esac
+  w=$(( cols - FIT_CHROME_COLS - 2 * pad ))
+  [ "$w" -lt 1 ] && w=1
+  printf '%s' "$w"
+}
 
 # vislen — terminal columns a rendered segment will occupy.
 # pre:  $1 is a segment as built by this renderer: literal "\033[<params>m" SGR
@@ -58,8 +69,10 @@ FIT_RATIO=85
 #   - The block/box glyphs used here (│ █ ░ …) are East-Asian-Ambiguous width.
 #     They are counted as 1, which matches Terminal.app, iTerm2 and Warp in
 #     their default configuration. A terminal explicitly configured to render
-#     ambiguous characters double-width will be under-measured; the FIT_RATIO
-#     headroom absorbs the common case and STATUSLINE_COLS overrides it.
+#     ambiguous characters double-width will be under-measured, and the budget
+#     from fit_budget is exact rather than generous, so such a line is cut by
+#     the host's own truncate. STATUSLINE_COLS is the override for that case:
+#     declaring a narrower width buys back the difference.
 #   - Under a non-UTF-8 locale bash counts bytes, so multi-byte characters
 #     over-measure. That can only make fit_line trim earlier, never overflow.
 vislen() {

@@ -13,9 +13,11 @@
 # sequences are stripped first and vislen counts the remaining characters.
 # Reports the widest line per preset.
 #
-# The cap threshold for a preset is that preset's widest line divided by
-# FIT_RATIO (the fraction of the terminal a line is allowed to occupy), i.e.
-# the narrowest terminal in which the preset still renders untrimmed.
+# The cap threshold for a preset is that preset's widest line PLUS the columns
+# the host keeps for itself (fit_budget), i.e. the narrowest terminal in which
+# the preset still renders untrimmed. It is reported at statusLine.padding 0 —
+# the host's own default — so the number is a property of this renderer and not
+# of whoever runs the harness; a reader with padding P configured adds 2*P.
 #
 # Isolation: STATUSLINE_COST_LOG points at a throwaway ledger under a temp dir,
 # so a measurement run never touches ~/.claude/statusline-costs.jsonl. All
@@ -25,7 +27,7 @@ set -uo pipefail
 SCRIPT_UNDER_TEST="${SCRIPT_UNDER_TEST:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/plugins/statusline/assets/statusline-command.sh}"
 [ -r "$SCRIPT_UNDER_TEST" ] || { echo "introuvable: $SCRIPT_UNDER_TEST" >&2; exit 1; }
 
-# vislen(), FIT_RATIO and the palette come from the script under test itself.
+# vislen(), FIT_CHROME_COLS and the palette come from the script under test.
 # shellcheck source=/dev/null  # The path is a variable BY DESIGN:
 # $SCRIPT_UNDER_TEST points the suite at the repo copy or an installed one.
 STATUSLINE_SOURCE_ONLY=1 source "$SCRIPT_UNDER_TEST"
@@ -74,7 +76,7 @@ for size in xs s m l xl; do
     STATUSLINE_SIZE="$size" \
     bash "$SCRIPT_UNDER_TEST" < "$TMPDIR_M/payload.json"
   )
-  # narrowest terminal that still renders this preset untrimmed
-  cap=$(( widest * 100 / FIT_RATIO ))
+  # narrowest terminal that still renders this preset untrimmed, at padding 0
+  cap=$(( widest + FIT_CHROME_COLS ))
   printf '%-4s %8s %8s   %s\n' "$size" "$widest" "$cap" "$nlines"
 done

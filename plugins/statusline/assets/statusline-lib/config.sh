@@ -13,6 +13,10 @@
 # drift.
 CTXGUARD_CONFIG="${HOME}/.claude/ctxguard-thresholds.json"
 BUDGET_CONFIG="${HOME}/.claude/statusline-budget.json"
+# The host's own settings file. Read for exactly one field — statusLine.padding
+# — because that padding is applied by the host AROUND this script's output and
+# therefore comes out of the width available to it (see fit.sh, fit_budget).
+SETTINGS_CONFIG="${HOME}/.claude/settings.json"
 
 # resolve_ctx_thresholds — context-window thresholds for the model named $1.
 # pre:  $1 the model's display name (any case).
@@ -65,6 +69,37 @@ read_cache_ttl_min() {
     read -r b_ttl < <(jq -r '"\(.cache_ttl_min // 5)"' "$BUDGET_CONFIG" 2>/dev/null) || true
   fi
   case "$b_ttl" in ''|*[!0-9]*) printf '5' ;; *) printf '%s' "$b_ttl" ;; esac
+}
+
+# read_statusline_padding — the host's configured statusLine.padding.
+# post: prints a non-negative integer, always. 0 when the setting is absent,
+#       unreadable, negative or non-numeric — which is also the host's own
+#       default, so an unreadable settings file degrades to the host default
+#       rather than to a guess.
+# source: code.claude.com/docs/en/statusline — "The optional `padding` field
+#         adds extra horizontal spacing (in characters) to the status line
+#         content. Defaults to `0`."
+# Only the user-level file is read. A project or local settings file can also
+# carry statusLine, and the host merges them; this reader does not, so a
+# project-level padding is not seen. The cost of that miss is bounded: the
+# budget is off by twice the difference, and fit_line trims a segment early or
+# late by that much. Merging the full settings precedence would put the host's
+# resolution rules in this renderer, which is a larger contract than the width
+# budget needs.
+# The type test is done in jq, not on the printed text: the setting is a JSON
+# number for the host, and a JSON string "2" is NOT one — the host would hand it
+# to a layout engine that expects a number. Filtering on the shell side alone
+# would accept "2" and charge two columns the host never indents.
+read_statusline_padding() {
+  local p=""
+  [ -r "$SETTINGS_CONFIG" ] && {
+    p=$(jq -r '
+      .statusLine.padding as $p
+      | if ($p | type) == "number" and $p >= 0 and ($p | floor) == $p
+        then ($p | tostring) else "0" end
+    ' "$SETTINGS_CONFIG" 2>/dev/null) || p=""
+  }
+  case "$p" in ''|*[!0-9]*) printf '0' ;; *) printf '%s' "$p" ;; esac
 }
 
 # read_configured_size — the verbosity preset the config asks for.

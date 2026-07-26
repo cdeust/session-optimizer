@@ -321,14 +321,26 @@ function test_probe_cols_rejects_a_non_numeric_override() {
 # shellcheck disable=SC2329,SC2317  # The stubs below ARE invoked — by name
 # shadowing from inside probe_cols, which shellcheck cannot follow. Both
 # codes are listed: it reports this as SC2317 before 0.11.0, SC2329 after.
-function test_probe_cols_falls_back_to_columns_when_the_tty_is_unreadable() {
+function test_probe_cols_prefers_columns_over_the_tty() {
   local out
   out=$(stty() { return 1; }; unset STATUSLINE_COLS; COLUMNS=137; probe_cols)
   assert_eq "$out" "137" "COLUMNS" || return 1
+  # The precedence itself, which is the point of the rung order: the host sets
+  # COLUMNS to the width it renders into, so it must beat a tty that answers
+  # something else. A stty that succeeds with a DIFFERENT width must not win.
+  out=$(stty() { printf '61 999'; }; unset STATUSLINE_COLS; COLUMNS=137; probe_cols)
+  assert_eq "$out" "137" "COLUMNS bat un tty lisible" || return 1
   # A zero or non-numeric COLUMNS is no better than none: keep walking.
   out=$(stty() { return 1; }; tput() { return 1; }
         unset STATUSLINE_COLS; COLUMNS=0; probe_cols)
   assert_eq "$out" "200" "COLUMNS nul ignore"
+  # The tty rung's SUCCESS path is deliberately not asserted here, and stubbing
+  # `stty` would not reach it: what fails first in a test process is the
+  # `< /dev/tty` REDIRECTION, since the runner has no controlling terminal —
+  # the same reason the rung answers nothing under the host (verified against a
+  # live payload, 2026-07-26). Only a pty harness could exercise it, and the
+  # rung exists precisely for the case a pty harness would simulate. Its failure
+  # path — falling through to the next rung — is what the cases above pin.
 }
 
 # The regression this rung exists for: with stdout on a pipe — which is how the
@@ -360,7 +372,97 @@ function test_probe_cols_final_fallback_is_wide() {
   out=$(stty() { return 1; }; tput() { return 1; }
         unset STATUSLINE_COLS COLUMNS; probe_cols)
   assert_eq "$out" "200" "repli large" || return 1
-  [ "$out" -ge "$SIZE_L_MIN_COLS" ] || { echo "FAIL: repli sous le seuil l" >&2; return 1; }
+  [ "$out" -ge "$SIZE_L_MIN_BUDGET" ] || { echo "FAIL: repli sous le seuil l" >&2; return 1; }
+  return 0
+}
+
+# =========================== fit_budget ==================================
+# fit_budget converts a terminal width into the columns one line actually gets.
+# The reserve is the host's own: 4 columns of container padding (FIT_CHROME_COLS)
+# plus statusLine.padding on BOTH sides, because the host applies it as Ink's
+# paddingX. Every arm below is a path in the function, including the two
+# validation arms and the floor.
+
+function test_fit_budget_subtracts_the_host_chrome() {
+  assert_eq "$(fit_budget 241 0)" "237" "241 sans padding" || return 1
+  assert_eq "$(fit_budget 100 0)" "96" "100 sans padding"
+}
+
+# The configured padding costs TWICE its value — one column each side. A test
+# that asserted a single subtraction would pass on a renderer that indents only
+# the left, which is not what the host does.
+function test_fit_budget_charges_padding_on_both_sides() {
+  assert_eq "$(fit_budget 241 1)" "235" "padding 1" || return 1
+  assert_eq "$(fit_budget 241 3)" "231" "padding 3" || return 1
+  # the difference between two paddings is exactly twice their difference
+  local a b
+  a=$(fit_budget 200 0); b=$(fit_budget 200 5)
+  assert_eq "$(( a - b ))" "10" "delta = 2 x padding"
+}
+
+# The budget feeds arithmetic comparisons and fit_line, whose contract needs a
+# positive integer. Neither input is trusted: the width comes from probe_cols
+# (whose last rung is a fallback) and the padding from a user-edited JSON file.
+function test_fit_budget_validates_both_inputs() {
+  for bad in "" "abc" "80x24" "-5" " "; do
+    assert_eq "$(fit_budget "$bad" 0)" "1" "largeur invalide [$bad]" || return 1
+  done
+  # A non-numeric padding degrades to 0 rather than poisoning the width.
+  for bad in "" "abc" "-2" "1.5"; do
+    assert_eq "$(fit_budget 100 "$bad")" "96" "padding invalide [$bad]" || return 1
+  done
+  # Omitted padding is the host's own default of 0.
+  assert_eq "$(fit_budget 100)" "96" "padding absent"
+}
+
+# A terminal too narrow to hold anything after the reserve must still yield a
+# POSITIVE budget: fit_line reads 0 (and any non-numeric) as "no budget given"
+# and returns the line untrimmed, which is the exact overflow this prevents.
+function test_fit_budget_floor_is_positive() {
+  assert_eq "$(fit_budget 4 0)" "1" "largeur = chrome" || return 1
+  assert_eq "$(fit_budget 1 0)" "1" "largeur sous le chrome" || return 1
+  assert_eq "$(fit_budget 10 20)" "1" "padding superieur a la largeur" || return 1
+  # and the floor really is usable by fit_line — it must trim, not pass through
+  local long="aaaaaaaaaaaaaaaaaaaa"
+  [ "$(vislen "$(fit_line "$long" "$(fit_budget 4 0)")")" -le 1 ] \
+    || { echo "FAIL: plancher non exploitable par fit_line" >&2; return 1; }
+  return 0
+}
+
+# ====================== read_statusline_padding ==========================
+# The host's default is 0 (code.claude.com/docs/en/statusline). Every arm that
+# cannot produce a trustworthy number must land on that same 0, so a broken or
+# absent settings file degrades to the host's behaviour and never to a guess.
+
+function test_read_statusline_padding_reads_the_setting() {
+  SETTINGS_CONFIG="$TEST_TMPDIR/settings.json"
+  printf '{"statusLine":{"type":"command","command":"x","padding":2}}' > "$SETTINGS_CONFIG"
+  assert_eq "$(read_statusline_padding)" "2" "padding lu" || return 1
+  printf '{"statusLine":{"padding":0}}' > "$SETTINGS_CONFIG"
+  assert_eq "$(read_statusline_padding)" "0" "padding zero"
+}
+
+function test_read_statusline_padding_defaults_to_zero() {
+  SETTINGS_CONFIG="$TEST_TMPDIR/absent-settings.json"
+  assert_eq "$(read_statusline_padding)" "0" "fichier absent" || return 1
+  SETTINGS_CONFIG="$TEST_TMPDIR/settings.json"
+  # no statusLine at all, statusLine without padding, and a malformed file
+  printf '{"model":"x"}' > "$SETTINGS_CONFIG"
+  assert_eq "$(read_statusline_padding)" "0" "statusLine absent" || return 1
+  printf '{"statusLine":{"type":"command"}}' > "$SETTINGS_CONFIG"
+  assert_eq "$(read_statusline_padding)" "0" "padding absent" || return 1
+  printf '{ this is not json' > "$SETTINGS_CONFIG"
+  assert_eq "$(read_statusline_padding)" "0" "json invalide"
+}
+
+# A padding that is not a non-negative integer cannot be charged against the
+# width — a negative one would WIDEN the budget past the terminal.
+function test_read_statusline_padding_rejects_non_integers() {
+  SETTINGS_CONFIG="$TEST_TMPDIR/settings.json"
+  for bad in '"2"' '-1' '1.5' 'null' 'true' '"abc"' '[]'; do
+    printf '{"statusLine":{"padding":%s}}' "$bad" > "$SETTINGS_CONFIG"
+    assert_eq "$(read_statusline_padding)" "0" "padding invalide [$bad]" || return 1
+  done
   return 0
 }
 
@@ -408,9 +510,9 @@ function test_resolve_preset_defaults_to_l_on_a_wide_terminal() {
 function test_resolve_preset_width_cap_boundary() {
   BUDGET_CONFIG="$TEST_TMPDIR/absent.json"
   unset STATUSLINE_SIZE
-  resolve_preset "$SIZE_L_MIN_COLS"
+  resolve_preset "$SIZE_L_MIN_BUDGET"
   assert_eq "$SIZE" "l" "au seuil" || return 1
-  resolve_preset $((SIZE_L_MIN_COLS - 1))
+  resolve_preset $((SIZE_L_MIN_BUDGET - 1))
   assert_eq "$SIZE" "s" "sous le seuil" || return 1
   assert_eq "$RANK" "1" "rang s" || return 1
   assert_eq "$CTX_W" "8" "CTX_W s"
@@ -593,9 +695,16 @@ main() {
     test_quota_reading_rejects_absent_window
     test_probe_cols_env_override_wins
     test_probe_cols_rejects_a_non_numeric_override
-    test_probe_cols_falls_back_to_columns_when_the_tty_is_unreadable
+    test_probe_cols_prefers_columns_over_the_tty
     test_probe_cols_ignores_tput_when_stdout_is_not_a_terminal
     test_probe_cols_final_fallback_is_wide
+    test_fit_budget_subtracts_the_host_chrome
+    test_fit_budget_charges_padding_on_both_sides
+    test_fit_budget_validates_both_inputs
+    test_fit_budget_floor_is_positive
+    test_read_statusline_padding_reads_the_setting
+    test_read_statusline_padding_defaults_to_zero
+    test_read_statusline_padding_rejects_non_integers
     test_resolve_preset_env_pin_is_honoured_at_any_width
     test_resolve_preset_ignores_an_invalid_env_pin
     test_resolve_preset_defaults_to_l_on_a_wide_terminal

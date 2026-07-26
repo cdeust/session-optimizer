@@ -215,25 +215,45 @@ function test_static_no_eval_no_unquoted_expansion() {
   return 0
 }
 
-# --- performance: heat_rgb 20-run average, guard-railed ---
-# Only the DELTA vs baseline is asserted (matches AC-015/NFR-002 exactly:
-# "delta < +5ms"). An earlier draft also asserted an absolute avg < 3ms
-# p95-proxy from the PRD test-template's aspirational budget (05-testing.md);
-# that absolute check was dropped after measurement showed it conflates the
-# instrument's own cost with the phenomenon under test: `date +%s%N` forks an
-# external binary twice per sample, and on this machine that fork alone costs
-# ~5ms (measured: `s=$(date +%s%N); e=$(date +%s%N); echo $((e-s))` ~5,034,000ns
-# in isolation) — already over the 3ms budget before heat_rgb (a bash builtin
-# doing integer comparisons, no I/O) ever runs. The fork cost is present
-# identically in both the baseline and the 20-run average, so it cancels out
-# of the delta, which is the metric that actually answers the non-regression
-# question NFR-002 asks (source: measured on this host, 2026-07-15, see PR).
+# --- performance: heat_rgb cost above the instrument, 20 paired samples ---
+# Asserts the DELTA only (AC-015/NFR-002: "delta < +5ms"). An absolute budget is
+# not assertable here: `date +%s%N` forks an external binary twice per sample,
+# and on this machine that fork alone costs ~5ms (measured:
+# `s=$(date +%s%N); e=$(date +%s%N); echo $((e-s))` ~5,034,000ns in isolation),
+# which already exceeds any budget heat_rgb — a bash function doing integer
+# comparisons with no I/O — could be held to.
+#
+# The delta is measured against a CONTROL, not against an earlier sample of
+# heat_rgb itself. The previous form timed one heat_rgb call as its baseline and
+# compared it to the mean of twenty more: both sides contained the same work, so
+# the delta was noise around zero rather than a cost, and with n=1 on the
+# baseline a single slow first sample failed the assertion outright. It failed
+# roughly 4 runs in 10 on an otherwise idle machine (measured 2026-07-26, this
+# host) — a flaky test asserting nothing.
+#
+# The timestamps are also taken ONCE PER BLOCK rather than once per sample,
+# because the fork is not merely large, it is erratic: timing an EMPTY pair of
+# `date +%s%N` calls on this host returned 4.2, 21.4, 21.7, 21.8 and 23.5 ms
+# across five consecutive attempts (measured 2026-07-26). A ~19 ms spread cannot
+# support a 5 ms assertion at any sample count that keeps the suite fast — which
+# is why the old form was flaky rather than merely imprecise. Two timestamps
+# around N iterations divide that spread by N instead, so at N=2000 the
+# instrument contributes ~0.01 ms per call.
+#
+# Both arms are measured the same way, and the control carries the same
+# redirection so that only heat_rgb's own work separates them. Measured on this
+# host at N=2000: heat_rgb 173 us/call, control 41 us/call — a delta of 0.13 ms
+# against a 5 ms budget, and the whole test runs in ~0.4 s.
 function test_perf_heat_rgb_20run_avg() {
-  local i s e total=0 baseline avg delta
-  s=$(date +%s%N); heat_rgb 50 >/dev/null; e=$(date +%s%N); baseline=$((e-s))
-  for i in $(seq 1 20); do s=$(date +%s%N); heat_rgb 50 >/dev/null; e=$(date +%s%N); total=$((total+(e-s))); done
-  avg=$((total/20)); delta=$((avg-baseline))
-  [ "$delta" -gt 5000000 ] && { echo "FAIL: delta ${delta}ns > +5ms" >&2; return 1; }
+  local i s e n=2000 per_call per_ctrl delta
+  heat_rgb 50 >/dev/null      # warm-up, discarded: first call pays one-time costs
+  s=$(date +%s%N); for ((i=0;i<n;i++)); do heat_rgb 50 >/dev/null; done; e=$(date +%s%N)
+  per_call=$(( (e-s)/n ))
+  s=$(date +%s%N); for ((i=0;i<n;i++)); do : >/dev/null;           done; e=$(date +%s%N)
+  per_ctrl=$(( (e-s)/n ))
+  delta=$(( per_call - per_ctrl ))
+  [ "$delta" -gt 5000000 ] && {
+    echo "FAIL: heat_rgb ${delta}ns au-dessus du controle > +5ms" >&2; return 1; }
   return 0
 }
 
