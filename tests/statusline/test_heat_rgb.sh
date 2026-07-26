@@ -12,6 +12,17 @@
 set -uo pipefail
 SCRIPT_UNDER_TEST="${SCRIPT_UNDER_TEST:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/plugins/statusline/assets/statusline-command.sh}"
 
+# The renderer is a composition root plus a directory of modules (heat_rgb and
+# make_bar live in statusline-lib/palette.sh, token_color in severity.sh). A
+# static check that read only the main script would pass vacuously, so the
+# checks below sweep the whole source set.
+LIB_UNDER_TEST="${LIB_UNDER_TEST:-$(dirname "$SCRIPT_UNDER_TEST")/statusline-lib}"
+SOURCES_UNDER_TEST=("$SCRIPT_UNDER_TEST")
+for _f in "$LIB_UNDER_TEST"/*.sh; do
+  [ -r "$_f" ] && SOURCES_UNDER_TEST+=("$_f")
+done
+unset _f
+
 # Expected palette values — asserted independently of the script's own HEAT_*
 # constants (except HEAT_3, whose exact terracotta-attenuated RGB is derived
 # from a scripted oklch->srgb conversion and is inherently the same computed
@@ -35,6 +46,8 @@ teardown() { [ -n "${TEST_TMPDIR:-}" ] && rm -rf "$TEST_TMPDIR"; unset TEST_TMPD
 
 run_test() {
   local test_name="$1"
+  # shellcheck source=/dev/null  # The path is a variable BY DESIGN:
+  # $SCRIPT_UNDER_TEST points the suite at the repo copy or an installed one.
   ( setup; trap teardown EXIT; STATUSLINE_SOURCE_ONLY=1 source "$SCRIPT_UNDER_TEST"; "$test_name" )
   local status=$?
   [ $status -eq 0 ] && echo "PASS: ${test_name}" || echo "FAIL: ${test_name}"
@@ -173,24 +186,32 @@ function test_make_bar_concurrent_instances() {
 # --- static / integration checks against the script source ---
 
 function test_static_no_lerp_or_gradrgb_residue() {
-  grep -q -E "\\bgrad_rgb\\b" "$SCRIPT_UNDER_TEST" && { echo "FAIL: grad_rgb residuel" >&2; return 1; }
-  grep -q -E "lerp" "$SCRIPT_UNDER_TEST" && { echo "FAIL: lerp residuel" >&2; return 1; }
+  grep -q -E "\\bgrad_rgb\\b" "${SOURCES_UNDER_TEST[@]}" && { echo "FAIL: grad_rgb residuel" >&2; return 1; }
+  grep -q -E "lerp" "${SOURCES_UNDER_TEST[@]}" && { echo "FAIL: lerp residuel" >&2; return 1; }
   return 0
 }
 
 function test_static_heat_track_no_semaphore_colors() {
   # GREEN/YELLOW/RED must not appear inside heat_rgb()/make_bar() bodies
-  grep -q -E "(GREEN|YELLOW|RED)" <(sed -n '/^heat_rgb()/,/^}/p;/^make_bar()/,/^}/p' "$SCRIPT_UNDER_TEST") && { echo "FAIL: ref semaphore dans la jauge" >&2; return 1; }
+  grep -q -E "(GREEN|YELLOW|RED)" <(sed -n '/^heat_rgb()/,/^}/p;/^make_bar()/,/^}/p' "${SOURCES_UNDER_TEST[@]}") && { echo "FAIL: ref semaphore dans la jauge" >&2; return 1; }
   return 0
 }
 
+# token_color must exist exactly once across the source set: the split moved it
+# out of the main script, and two definitions would mean one silently shadows
+# the other depending on module load order.
 function test_static_token_color_unaffected() {
-  grep -q -E "^token_color\\(\\)" "$SCRIPT_UNDER_TEST" || { echo "FAIL: token_color introuvable" >&2; return 1; }
-  return 0
+  local n
+  n=$(grep -hcE "^token_color\\(\\)" "${SOURCES_UNDER_TEST[@]}" | awk '{s+=$1} END{print s+0}')
+  assert_eq "$n" "1" "definitions de token_color"
 }
 
 function test_static_no_eval_no_unquoted_expansion() {
-  grep -q -E "\\beval\\b" "$SCRIPT_UNDER_TEST" && { echo "FAIL: eval detecte" >&2; return 1; }
+  # Full-line comments are skipped: the rule against this builtin is worth
+  # explaining at the site that had to avoid it, and a comment cannot execute
+  # anything. Only lines that could actually run are checked.
+  grep -nE "\\beval\\b" "${SOURCES_UNDER_TEST[@]}" | grep -vE ':[[:space:]]*#' \
+    && { echo "FAIL: eval detecte" >&2; return 1; }
   return 0
 }
 
@@ -226,7 +247,7 @@ shuffle_tests() {
   while [ "$i" -gt 1 ]; do
     i=$((i-1))
     j=$((RANDOM % (i+1)))
-    tmp="${arr[$i]}"; arr[$i]="${arr[$j]}"; arr[$j]="$tmp"
+    tmp="${arr[i]}"; arr[i]="${arr[j]}"; arr[j]="$tmp"
   done
   printf '%s\n' "${arr[@]}"
 }

@@ -19,8 +19,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest
-          sudo apt-get update
-          sudo apt-get install -y shellcheck
+
+      # Pinned rather than taken from apt: the distro build is several releases
+      # behind, and the two versions do not report the same findings — it raises
+      # SC2317 where 0.11.0 raises SC2329, and SC2015 on `A && B || true` which
+      # 0.11.0 no longer flags. An unpinned linter makes a local run greener
+      # than the gate, which is how three findings reached CI unseen.
+      - name: Install shellcheck 0.11.0
+        run: |
+          v=v0.11.0
+          curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/${v}/shellcheck-${v}.linux.x86_64.tar.xz" \
+            | sudo tar -xJf - --strip-components=1 -C /usr/local/bin "shellcheck-${v}/shellcheck"
+          shellcheck --version
 
       - name: Refine gate contract tests
         run: pytest tests/test_refine_gate.py -v
@@ -28,11 +38,20 @@ jobs:
       - name: Subagent tracker tests
         run: pytest tests/test_subagent_usage.py -v
 
-      - name: Statusline unit tests
+      - name: Statusline heat-track tests
         run: bash tests/statusline/test_heat_rgb.sh
 
-      - name: Shellcheck statusline script
-        run: shellcheck plugins/statusline/assets/statusline-command.sh
+      - name: Statusline fitting, pace and module tests
+        run: bash tests/statusline/test_fit_and_pace.sh
+
+      - name: Shellcheck statusline renderer, modules, ledger and tests
+        run: |
+          shellcheck plugins/statusline/assets/statusline-command.sh
+          shellcheck plugins/statusline/assets/statusline-lib/*.sh
+          shellcheck plugins/statusline/assets/costs.sh
+          # The suites are shell too, and a checker that skips them lets the
+          # code that guards the renderer rot unwatched.
+          shellcheck tests/statusline/*.sh
 
       - name: Validate marketplace, plugin, and hook JSON
         run: |
@@ -45,3 +64,4 @@ jobs:
           done
           python -m json.tool plugins/statusline/assets/statusline-budget.json > /dev/null
           python -m json.tool plugins/statusline/assets/ctxguard-thresholds.json > /dev/null
+          python -m json.tool plugins/statusline/assets/pricing.json > /dev/null
