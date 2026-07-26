@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Session optimizer, split into three independently installable plugins: context-guard (Stop-hook context budget + memory-writer checkpoint subagent + subagent spend tracker), refine-gate (UserPromptSubmit prompt-binding gate + /refine skill), and statusline (multi-line status bar + install skill).",
-    "version": "2.0.0"
+    "version": "2.1.0"
   },
   "plugins": [
     {
@@ -57,8 +57,8 @@
     {
       "name": "statusline",
       "source": "./plugins/statusline",
-      "description": "Multi-line Claude Code statusline with RGB-gradient context bars tied to per-model checkpoint thresholds (shared with context-guard), monthly cost tracking, per-session telemetry, rate-limit gauges, and live subagent spend. Ships an install skill that copies the bundled assets into ~/.claude and wires settings.json.",
-      "version": "2.0.0",
+      "description": "Multi-line status bar: a discrete heat-track context bar tied to per-model checkpoint thresholds (shared with context-guard), one deduplicated cost ledger that prices each session from its own transcript plus its subagents, 5h/7d rate-limit gauges with burn-rate pacing (the projection of usage at reset, not just the percentage), per-session telemetry (tok/s, compactions, prompt-cache countdown), and terminal-width fitting that drops the lowest-priority segments instead of letting the host truncate. Words, not emoji. Ships an install skill.",
+      "version": "2.1.0",
       "author": {
         "name": "Clement Deust",
         "email": "admin@ai-architect.tools"

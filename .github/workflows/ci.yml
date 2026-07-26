@@ -28,11 +28,17 @@ jobs:
       - name: Subagent tracker tests
         run: pytest tests/test_subagent_usage.py -v
 
-      - name: Statusline unit tests
+      - name: Statusline heat-track tests
         run: bash tests/statusline/test_heat_rgb.sh
 
-      - name: Shellcheck statusline script
-        run: shellcheck plugins/statusline/assets/statusline-command.sh
+      - name: Statusline fitting, pace and module tests
+        run: bash tests/statusline/test_fit_and_pace.sh
+
+      - name: Shellcheck statusline renderer, modules and ledger
+        run: |
+          shellcheck plugins/statusline/assets/statusline-command.sh
+          shellcheck plugins/statusline/assets/statusline-lib/*.sh
+          shellcheck plugins/statusline/assets/costs.sh
 
       - name: Validate marketplace, plugin, and hook JSON
         run: |
@@ -45,3 +51,4 @@ jobs:
           done
           python -m json.tool plugins/statusline/assets/statusline-budget.json > /dev/null
           python -m json.tool plugins/statusline/assets/ctxguard-thresholds.json > /dev/null
+          python -m json.tool plugins/statusline/assets/pricing.json > /dev/null
