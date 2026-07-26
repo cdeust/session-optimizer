@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "sonnet5_intro_until": "2026-08-31",
+  "models": [
+    { "match": "opus-4-(5|6|7|8)", "ind": 5,  "out": 25, "cw5": 6.25,  "cw1": 10, "cr": 0.5 },
+    { "match": "opus",             "ind": 15, "out": 75, "cw5": 18.75, "cw1": 30, "cr": 1.5 },
+    { "match": "fable|mythos",     "ind": 10, "out": 50, "cw5": 12.5,  "cw1": 20, "cr": 1.0 },
+    { "match": "haiku",            "ind": 1,  "out": 5,  "cw5": 1.25,  "cw1": 2,  "cr": 0.10 },
+    { "match": "sonnet-5",
+      "intro": { "ind": 2, "out": 10, "cw5": 2.5,  "cw1": 4, "cr": 0.2 },
+      "list":  { "ind": 3, "out": 15, "cw5": 3.75, "cw1": 6, "cr": 0.3 } },
+    { "match": "sonnet",           "ind": 3,  "out": 15, "cw5": 3.75,  "cw1": 6,  "cr": 0.30 },
+    { "match": "",                 "ind": 3,  "out": 15, "cw5": 3.75,  "cw1": 6,  "cr": 0.30 }
+  ]
+}
