@@ -254,13 +254,13 @@ _cleanup_tmps_maybe() {
         local f mtime_f now_f; now_f=$(date +%s)
         while IFS= read -r f; do
             mtime_f=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo "$now_f")
-            (( now_f - mtime_f > 60 )) && rm -f "$f" 2>/dev/null || true
+            if (( now_f - mtime_f > 60 )); then rm -f "$f" 2>/dev/null || true; fi
         done < <(find "$dir" -maxdepth 1 -name "${base}.tmp.*" 2>/dev/null)
         # Per-session price caches (main + subagent), expire on the retention window.
         local ret_sec=$(( COST_LOG_RETENTION_DAYS * 86400 ))
         while IFS= read -r f; do
             mtime_f=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo "$now_f")
-            (( now_f - mtime_f > ret_sec )) && rm -f "$f" 2>/dev/null || true
+            if (( now_f - mtime_f > ret_sec )); then rm -f "$f" 2>/dev/null || true; fi
         done < <(find "$dir" -maxdepth 1 \( -name "${base}.sub.*" -o -name "${base}.main.*" \) 2>/dev/null)
     ) &
     disown 2>/dev/null || true
@@ -291,7 +291,7 @@ _weekdays_elapsed() {
         dstr="${month}-$(printf '%02d' "$d")"
         dow=$(date -j -f "%Y-%m-%d" "$dstr" +%u 2>/dev/null \
             || date -d "$dstr" +%u 2>/dev/null)
-        [[ "$dow" -le 5 ]] && (( count++ )) || true
+        if [[ "$dow" -le 5 ]]; then count=$(( count + 1 )); fi
     done
     [[ "$count" -lt 1 ]] && count=1
     echo "$count"
