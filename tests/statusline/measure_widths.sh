@@ -26,6 +26,8 @@ SCRIPT_UNDER_TEST="${SCRIPT_UNDER_TEST:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../
 [ -r "$SCRIPT_UNDER_TEST" ] || { echo "introuvable: $SCRIPT_UNDER_TEST" >&2; exit 1; }
 
 # vislen(), FIT_RATIO and the palette come from the script under test itself.
+# shellcheck source=/dev/null  # The path is a variable BY DESIGN:
+# $SCRIPT_UNDER_TEST points the suite at the repo copy or an installed one.
 STATUSLINE_SOURCE_ONLY=1 source "$SCRIPT_UNDER_TEST"
 command -v vislen >/dev/null || { echo "vislen absent de $SCRIPT_UNDER_TEST" >&2; exit 1; }
 

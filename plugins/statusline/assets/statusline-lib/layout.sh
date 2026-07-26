@@ -24,8 +24,11 @@
 # query anything and returns terminfo's blind default of 80, which would
 # silently downgrade the preset on every IDE and web host.
 probe_cols() {
+  # The override is an escape hatch, not an exemption from the postcondition: a
+  # non-numeric or zero value falls through to the probes below rather than
+  # being printed, which would break every arithmetic comparison downstream.
   local cols="${STATUSLINE_COLS:-}"
-  if [ -n "$cols" ]; then printf '%s' "$cols"; return; fi
+  case "$cols" in ''|*[!0-9]*|0) ;; *) printf '%s' "$cols"; return ;; esac
   # stdin is the JSON pipe, so the size is read from the controlling tty. The
   # stderr redirect wraps the whole group, not just stty: with no controlling
   # terminal it is the "< /dev/tty" REDIRECTION that fails, and the shell

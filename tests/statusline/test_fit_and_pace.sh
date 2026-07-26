@@ -49,6 +49,8 @@ teardown() { [ -n "${TEST_TMPDIR:-}" ] && rm -rf "$TEST_TMPDIR"; unset TEST_TMPD
 
 run_test() {
   local test_name="$1"
+  # shellcheck source=/dev/null  # The path is a variable BY DESIGN:
+  # $SCRIPT_UNDER_TEST points the suite at the repo copy or an installed one.
   ( setup; trap teardown EXIT; STATUSLINE_SOURCE_ONLY=1 source "$SCRIPT_UNDER_TEST"; "$test_name" )
   local status=$?
   [ $status -eq 0 ] && echo "PASS: ${test_name}" || echo "FAIL: ${test_name}"
@@ -286,6 +288,157 @@ function test_quota_reading_rejects_absent_window() {
   return 0
 }
 
+# =========================== probe_cols ==================================
+# The probe walks four sources in order. Only the $STATUSLINE_COLS rung is
+# reachable as-is from a test process, because the others depend on whether the
+# runner happens to own a terminal — which differs between a developer's shell
+# and CI. Each lower rung is therefore reached by shadowing the command that
+# rung calls with a failing stub: probe_cols invokes `stty` and `tput` as plain
+# commands, so a function of the same name defined in the test's subshell wins.
+# No production seam is added for the tests, and no case depends on the runner.
+
+function test_probe_cols_env_override_wins() {
+  assert_eq "$(STATUSLINE_COLS=42 COLUMNS=137 probe_cols)" "42" "override" || return 1
+  assert_eq "$(STATUSLINE_COLS=300 probe_cols)" "300" "override large"
+}
+
+# The postcondition is "a positive integer, always". The override is an escape
+# hatch, not an exemption: garbage must fall through to the probes, never reach
+# the caller, where it would break the arithmetic width comparisons.
+# shellcheck disable=SC2329  # The stubs below ARE invoked — by name
+# shadowing from inside probe_cols, which shellcheck cannot follow.
+function test_probe_cols_rejects_a_non_numeric_override() {
+  local out
+  for bad in "abc" "0" "-5" "80x24" " "; do
+    out=$(stty() { return 1; }; tput() { return 1; }
+          STATUSLINE_COLS="$bad" COLUMNS=137 probe_cols)
+    assert_eq "$out" "137" "override invalide [$bad]" || return 1
+  done
+  return 0
+}
+
+# shellcheck disable=SC2329  # The stubs below ARE invoked — by name
+# shadowing from inside probe_cols, which shellcheck cannot follow.
+function test_probe_cols_falls_back_to_columns_when_the_tty_is_unreadable() {
+  local out
+  out=$(stty() { return 1; }; unset STATUSLINE_COLS; COLUMNS=137; probe_cols)
+  assert_eq "$out" "137" "COLUMNS" || return 1
+  # A zero or non-numeric COLUMNS is no better than none: keep walking.
+  out=$(stty() { return 1; }; tput() { return 1; }
+        unset STATUSLINE_COLS; COLUMNS=0; probe_cols)
+  assert_eq "$out" "200" "COLUMNS nul ignore"
+}
+
+# The regression this rung exists for: with stdout on a pipe — which is how the
+# host captures this renderer — `tput cols` cannot query anything and answers
+# terminfo's blind 80, silently downgrading the preset on every IDE and web
+# session. It must NOT be consulted, so the answer here is the wide fallback and
+# never the stub's 80. Command substitution puts stdout on a pipe, so this is
+# the real condition, not a simulated one.
+# shellcheck disable=SC2329  # The stubs below ARE invoked — by name
+# shadowing from inside probe_cols, which shellcheck cannot follow.
+function test_probe_cols_ignores_tput_when_stdout_is_not_a_terminal() {
+  local out
+  out=$(stty() { return 1; }; tput() { printf '80'; }
+        unset STATUSLINE_COLS COLUMNS; probe_cols)
+  assert_eq "$out" "200" "tput consulte hors terminal" || return 1
+  case "$out" in 80) echo "FAIL: 80 aveugle de terminfo" >&2; return 1 ;; esac
+  return 0
+}
+
+# When nothing can answer, the guess is deliberately WIDE: an over-generous
+# width reproduces the pre-width-aware rendering, an over-tight one hides
+# information that would have fitted.
+# shellcheck disable=SC2329  # The stubs below ARE invoked — by name
+# shadowing from inside probe_cols, which shellcheck cannot follow.
+function test_probe_cols_final_fallback_is_wide() {
+  local out
+  out=$(stty() { return 1; }; tput() { return 1; }
+        unset STATUSLINE_COLS COLUMNS; probe_cols)
+  assert_eq "$out" "200" "repli large" || return 1
+  [ "$out" -ge "$SIZE_L_MIN_COLS" ] || { echo "FAIL: repli sous le seuil l" >&2; return 1; }
+  return 0
+}
+
+# =========================== resolve_preset ==============================
+# resolve_preset sets SIZE/RANK/CTX_W/BW rather than printing, so each case runs
+# it directly and reads the globals. BUDGET_CONFIG is repointed at a temp file
+# to drive the config rung without touching the developer's real config.
+
+# The env pin is the escape hatch for a terminal whose width cannot be probed,
+# so width must never override it — not even at a width where the preset cannot
+# structurally fit.
+# shellcheck disable=SC2153  # RANK is an OUTPUT of resolve_preset, set in
+# the sourced module; shellcheck cannot follow that boundary.
+function test_resolve_preset_env_pin_is_honoured_at_any_width() {
+  STATUSLINE_SIZE=xl resolve_preset 40
+  assert_eq "$SIZE" "xl" "pin xl etroit" || return 1
+  assert_eq "$RANK" "4" "rang xl" || return 1
+  assert_eq "$CTX_W" "16" "CTX_W xl" || return 1
+  assert_eq "$BW" "20" "BW xl" || return 1
+  STATUSLINE_SIZE=xs resolve_preset 300
+  assert_eq "$SIZE" "xs" "pin xs large" || return 1
+  assert_eq "$RANK" "0" "rang xs"
+}
+
+function test_resolve_preset_ignores_an_invalid_env_pin() {
+  BUDGET_CONFIG="$TEST_TMPDIR/absent.json"
+  STATUSLINE_SIZE=huge resolve_preset 300
+  assert_eq "$SIZE" "l" "pin invalide -> defaut" || return 1
+  STATUSLINE_SIZE="" resolve_preset 300
+  assert_eq "$SIZE" "l" "pin vide -> defaut"
+}
+
+function test_resolve_preset_defaults_to_l_on_a_wide_terminal() {
+  BUDGET_CONFIG="$TEST_TMPDIR/absent.json"
+  unset STATUSLINE_SIZE
+  resolve_preset 300
+  assert_eq "$SIZE" "l" "defaut" || return 1
+  assert_eq "$RANK" "3" "rang l" || return 1
+  assert_eq "$CTX_W" "10" "CTX_W l" || return 1
+  assert_eq "$BW" "12" "BW l"
+}
+
+# The threshold is l's widest measured line rounded up. Both sides are asserted:
+# a cap that fires one column early is as wrong as one that never fires.
+function test_resolve_preset_width_cap_boundary() {
+  BUDGET_CONFIG="$TEST_TMPDIR/absent.json"
+  unset STATUSLINE_SIZE
+  resolve_preset "$SIZE_L_MIN_COLS"
+  assert_eq "$SIZE" "l" "au seuil" || return 1
+  resolve_preset $((SIZE_L_MIN_COLS - 1))
+  assert_eq "$SIZE" "s" "sous le seuil" || return 1
+  assert_eq "$RANK" "1" "rang s" || return 1
+  assert_eq "$CTX_W" "8" "CTX_W s"
+}
+
+# The config value is a PREFERENCE: honoured when it fits, capped when it does
+# not. Treating it as a pin would leave the width rule dead for every default
+# installation, since the shipped config names a size.
+function test_resolve_preset_config_size_is_a_preference_capped_by_width() {
+  BUDGET_CONFIG="$TEST_TMPDIR/budget.json"
+  printf '{"size":"m"}' > "$BUDGET_CONFIG"
+  unset STATUSLINE_SIZE
+  resolve_preset 300
+  assert_eq "$SIZE" "m" "preference respectee" || return 1
+  resolve_preset 50
+  assert_eq "$SIZE" "s" "preference plafonnee"
+}
+
+# The cap is downward-only and lands on "s", the one preset measured narrower
+# than l. A preset already at or below it is left alone — a narrow terminal must
+# never promote xs to s, and a wide one must never promote s to l.
+function test_resolve_preset_cap_never_promotes() {
+  BUDGET_CONFIG="$TEST_TMPDIR/budget.json"
+  unset STATUSLINE_SIZE
+  printf '{"size":"xs"}' > "$BUDGET_CONFIG"
+  resolve_preset 50
+  assert_eq "$SIZE" "xs" "xs conserve en etroit" || return 1
+  printf '{"size":"s"}' > "$BUDGET_CONFIG"
+  resolve_preset 300
+  assert_eq "$SIZE" "s" "s non promu en large"
+}
+
 # =========================== file_mtime ==================================
 
 function test_file_mtime_reads_an_existing_file() {
@@ -331,6 +484,8 @@ function test_static_every_line_is_emitted_through_fit() {
 
 # Fixture: a populated identity line, rendered through the real function.
 # `local` is visible to callees in bash, so render_identity reads these.
+# shellcheck disable=SC2034  # These locals are READ by render_identity:
+# bash scopes `local` dynamically, which is what makes this fixture work.
 _identity_fixture() {
   local model="Opus 5" dir="session-optimizer" effort="high" thinking="true"
   render_identity
@@ -407,7 +562,7 @@ shuffle_tests() {
   while [ "$i" -gt 1 ]; do
     i=$((i-1))
     j=$((RANDOM % (i+1)))
-    tmp="${arr[$i]}"; arr[$i]="${arr[$j]}"; arr[$j]="$tmp"
+    tmp="${arr[i]}"; arr[i]="${arr[j]}"; arr[j]="$tmp"
   done
   printf '%s\n' "${arr[@]}"
 }
@@ -432,6 +587,17 @@ main() {
     test_quota_reading_rounds_the_percentage
     test_quota_reading_combines_worse_of_absolute_and_pace
     test_quota_reading_rejects_absent_window
+    test_probe_cols_env_override_wins
+    test_probe_cols_rejects_a_non_numeric_override
+    test_probe_cols_falls_back_to_columns_when_the_tty_is_unreadable
+    test_probe_cols_ignores_tput_when_stdout_is_not_a_terminal
+    test_probe_cols_final_fallback_is_wide
+    test_resolve_preset_env_pin_is_honoured_at_any_width
+    test_resolve_preset_ignores_an_invalid_env_pin
+    test_resolve_preset_defaults_to_l_on_a_wide_terminal
+    test_resolve_preset_width_cap_boundary
+    test_resolve_preset_config_size_is_a_preference_capped_by_width
+    test_resolve_preset_cap_never_promotes
     test_file_mtime_reads_an_existing_file test_file_mtime_missing_file_is_zero
     test_static_no_bare_stat_call test_static_every_line_is_emitted_through_fit
     test_identity_puts_dir_before_the_session_dials

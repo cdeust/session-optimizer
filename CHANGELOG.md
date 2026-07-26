@@ -43,9 +43,12 @@ Statusline only. No change to context-guard or refine-gate.
   exactly on the cap). The percentage carries the worse of the absolute and
   pace severities; the pace figure carries its own. Nothing is printed below
   10% of the window elapsed, where the extrapolation is not informative.
-- Tests: `tests/statusline/test_fit_and_pace.sh` (35 tests — fitting, pace,
-  severity, the module loader's failure path, and the §4.1 size cap),
-  `tests/statusline/measure_widths.sh` (per-preset width measurement).
+- Tests: `tests/statusline/test_fit_and_pace.sh` (46 tests — fitting, pace,
+  severity, the width probe, preset resolution, the module loader's failure
+  path, and the §4.1 size cap), `tests/statusline/measure_widths.sh`
+  (per-preset width measurement).
+- CI now shellchecks `tests/statusline/*.sh` as well as the assets. A checker
+  that skips the suites lets the code guarding the renderer rot unwatched.
 
 ### Changed
 
@@ -71,6 +74,10 @@ Statusline only. No change to context-guard or refine-gate.
 - `tput cols` returns terminfo's blind 80 when stdout is a pipe, which is how
   the host captures the renderer — it is now consulted only when stdout is a
   terminal, so IDE and web sessions no longer silently downgrade.
+- A non-numeric `$STATUSLINE_COLS` was printed straight through, breaking every
+  arithmetic width comparison downstream. The override is an escape hatch, not
+  an exemption from `probe_cols`'s postcondition: an invalid value now falls
+  through to the probes.
 - The terminal-size probe leaked `Device not configured` on every refresh with
   no controlling tty: the failing redirection is reported by the shell itself,
   so the whole group is now redirected, not just the command.

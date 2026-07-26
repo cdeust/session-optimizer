@@ -46,6 +46,8 @@ teardown() { [ -n "${TEST_TMPDIR:-}" ] && rm -rf "$TEST_TMPDIR"; unset TEST_TMPD
 
 run_test() {
   local test_name="$1"
+  # shellcheck source=/dev/null  # The path is a variable BY DESIGN:
+  # $SCRIPT_UNDER_TEST points the suite at the repo copy or an installed one.
   ( setup; trap teardown EXIT; STATUSLINE_SOURCE_ONLY=1 source "$SCRIPT_UNDER_TEST"; "$test_name" )
   local status=$?
   [ $status -eq 0 ] && echo "PASS: ${test_name}" || echo "FAIL: ${test_name}"
@@ -245,7 +247,7 @@ shuffle_tests() {
   while [ "$i" -gt 1 ]; do
     i=$((i-1))
     j=$((RANDOM % (i+1)))
-    tmp="${arr[$i]}"; arr[$i]="${arr[$j]}"; arr[$j]="$tmp"
+    tmp="${arr[i]}"; arr[i]="${arr[j]}"; arr[j]="$tmp"
   done
   printf '%s\n' "${arr[@]}"
 }
