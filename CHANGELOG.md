@@ -5,6 +5,20 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A skills-only Codex package for `refine-gate`, exposed through a repository
+  marketplace at `.agents/plugins/marketplace.json`.
+- Gemini CLI installation through the existing portable Agent Skill.
+
+### Changed
+
+- The `refine` skill now uses the portable Agent Skills frontmatter and
+  host-neutral wording. Claude's `UserPromptSubmit` hook and plugin manifests
+  are unchanged.
+
 ## [2.1.1] - 2026-07-26
 
 Statusline only. No change to context-guard or refine-gate.
