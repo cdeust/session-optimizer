@@ -7,6 +7,11 @@ keeping long [Claude Code](https://code.claude.com) sessions **readable,
 cheap, and un-poisoned** — shipped from one marketplace. Install exactly the
 ones you want; none requires the others.
 
+`refine-gate` is also packaged as a portable Agent Skill for Codex and Gemini
+CLI. `context-guard` and `statusline` remain Claude-specific because their
+behavior depends on Claude lifecycle hooks, session files, and statusline
+metrics.
+
 ```
 /plugin marketplace add cdeust/session-optimizer
 ```
@@ -16,6 +21,9 @@ ones you want; none requires the others.
 | [**context-guard**](plugins/context-guard) | `/plugin install context-guard@session-optimizer-marketplace` | A `Stop` hook enforces a per-model context budget: at the WARN threshold it writes a mechanical checkpoint stub and delegates persistence to a budgeted `memory-writer` subagent as a reflection pause; at the hard cap it forces checkpoint → `/clear` → resume. A `SubagentStop` tracker surfaces true session spend (main thread + subagents). |
 | [**refine-gate**](plugins/refine-gate) | `/plugin install refine-gate@session-optimizer-marketplace` | A `UserPromptSubmit` hook + `/refine` skill that bind vague prompt references ("the SSE solution", "like before", "still broken") to concrete artifacts with evidence, then select an execution strategy from a research-backed table — before any code is touched. |
 | [**statusline**](plugins/statusline) | `/plugin install statusline@session-optimizer-marketplace` | A multi-line status bar: discrete heat-track context bar tied to per-model checkpoint thresholds, one deduplicated cost ledger covering subagent spend, telemetry (tok/s, compactions, cache countdown), rate-limit gauges with burn-rate pacing, and terminal-width fitting. Ships an install skill — after installing, ask Claude to "install the statusline" and it wires everything. |
+
+For Codex and Gemini installation commands, see the
+[refine-gate README](plugins/refine-gate/README.md).
 
 ## Why
 
@@ -53,6 +61,7 @@ These plugins make that discipline *visible* (statusline), *automatic*
 
 ```
 .claude-plugin/marketplace.json   # the marketplace (three plugins + deprecated meta shim)
+.agents/plugins/marketplace.json # Codex marketplace (portable refine-gate only)
 plugins/
   context-guard/                  # Stop guard + memory-writer agent + SubagentStop tracker
   refine-gate/                    # UserPromptSubmit gate + /refine skill

@@ -1,0 +1,36 @@
+{
+  "name": "refine-gate",
+  "version": "2.0.0",
+  "description": "Bind ambiguous requests to concrete evidence before an agent changes code.",
+  "author": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools",
+    "url": "https://github.com/cdeust"
+  },
+  "homepage": "https://github.com/cdeust/session-optimizer/tree/main/plugins/refine-gate",
+  "repository": "https://github.com/cdeust/session-optimizer",
+  "license": "MIT",
+  "keywords": [
+    "prompt-engineering",
+    "intent-binding",
+    "evidence",
+    "verification"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Refine Gate",
+    "shortDescription": "Ground ambiguous requests before execution",
+    "longDescription": "Resolve vague references to concrete artifacts, separate symptoms from goals, and define externally verifiable acceptance criteria before implementation begins.",
+    "developerName": "Clement Deust",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "websiteURL": "https://github.com/cdeust/session-optimizer",
+    "privacyPolicyURL": "https://github.com/cdeust/session-optimizer/blob/main/PRIVACY.md",
+    "defaultPrompt": [
+      "Refine this request before changing code.",
+      "Bind every vague reference in this bug report."
+    ]
+  }
+}

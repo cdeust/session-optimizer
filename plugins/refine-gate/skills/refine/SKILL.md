@@ -5,26 +5,18 @@ description: >
   prompt (terse, frustrated, ambiguous, or shorthand), resolves every vague
   reference to a concrete artifact, recalls past decisions and lessons, and
   compiles a verifiable execution contract BEFORE any code is touched.
-  Invoke as /refine <raw prompt>, or on any prompt where intent might be
-  misread. Prevents: solving the wrong problem, dead/unwired code,
+  Invoke explicitly as $refine in Codex, /refine in Claude Code, or by skill
+  activation in Gemini CLI whenever intent might be misread. Prevents:
+  solving the wrong problem, dead/unwired code,
   band-aid fixes, non-scalable hot paths, unreadable output.
-category: engineering
-trigger: >
-  The user describes a task or bug in shorthand ("make it work like before",
-  "the X solution", "it's still broken"), references prior work without
-  naming files/commits, or a previous attempt missed their intent.
-input: >
-  The raw prompt verbatim (skill args; if empty, the user's last message).
-output: >
-  A compiled execution contract (goal, resolved references, constraints,
-  acceptance criteria, non-goals) — then execution under that contract.
 ---
 
 ## Automation
 
-A `UserPromptSubmit` hook (`hooks/refine_gate.py`, wired by this
-plugin's `hooks/hooks.json`) applies this skill automatically on two
-tiers:
+On Claude Code, a `UserPromptSubmit` hook (`hooks/refine_gate.py`, wired by
+this plugin's `hooks/hooks.json`) applies this skill automatically on two
+tiers. Codex and Gemini load the same skill explicitly or by description;
+their packages do not claim to install the Claude-specific hook.
 
 * **Tier 1 — reference markers**: prior-artifact shorthand, "exactly
   as/like", repeat-failure phrasing → inject the full binding-table
@@ -89,7 +81,7 @@ Binding table (mandatory in the contract):
 | "the sse solution" | `/api/graph/events` + `graph_event_stream.{py,js}` | recall #4197485, grep |
 
 A load-bearing reference that cannot be bound with evidence is a STOP:
-ask ONE batch of clarifying questions (AskUserQuestion, ≤3 questions,
+ask ONE batch of clarifying questions (≤3 questions,
 each offering the concrete candidates found). Never guess silently on
 a load-bearing binding; never ask about bindings the evidence already
 settles.
@@ -108,11 +100,11 @@ request, the contract's goal is a DIAGNOSIS, not a fix — say so.
 
 ### 4. Compile the constraints
 
-Always binding (do not restate, reference): the active coding
-standards — the project's CLAUDE.md / lint config, plus the user's
-global rules when present (e.g. `~/.claude/rules/coding-standards.md`:
-SOLID, Clean Architecture layers, size limits, no dead/unwired code,
-root-cause-only fixes, local reasoning, zetetic source discipline).
+Always binding (do not restate, reference): the active coding standards —
+the project's `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, or lint configuration as
+applicable, plus the host's active user rules. Preserve size limits, no
+dead/unwired code, root-cause-only fixes, local reasoning, and any zetetic
+source discipline those rules require.
 
 Add prompt-specific constraints extracted from the user's words and
 from recalled lessons (e.g. "no in-between interface" → polling/
@@ -200,8 +192,8 @@ After execution (or after the user corrects a binding), store the raw
 phrase → correct binding pair via your memory layer's remember tool
 when one is installed (e.g. `cortex:remember`, tags: ["archival",
 "lesson", "prompt-binding"], agent_topic scoped), so the next session
-binds it instantly; without a memory layer, note it in the project's
-own records (CLAUDE.md or a docs note). Mis-bindings the user had to
+binds it instantly; without a memory layer, note it in the project's own
+durable instructions or documentation. Mis-bindings the user had to
 correct are the highest-value memories this skill produces.
 
 ## Failure modes this skill exists to prevent

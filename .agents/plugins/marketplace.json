@@ -1,0 +1,20 @@
+{
+  "name": "session-optimizer-codex",
+  "interface": {
+    "displayName": "Session Optimizer"
+  },
+  "plugins": [
+    {
+      "name": "refine-gate",
+      "source": {
+        "source": "local",
+        "path": "./plugins/refine-gate"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

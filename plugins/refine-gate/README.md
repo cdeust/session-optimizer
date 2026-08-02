@@ -1,8 +1,8 @@
 # refine-gate
 
-A prompt-binding gate for [Claude Code](https://code.claude.com):
-a `UserPromptSubmit` hook (`hooks/refine_gate.py`) plus the `/refine` skill
-(`skills/refine/`).
+A portable prompt-binding skill for Claude Code, Codex, and Gemini CLI. The
+Claude package also includes a `UserPromptSubmit` hook
+(`hooks/refine_gate.py`) that applies the `/refine` skill automatically.
 
 Communication failures cost more than code failures: "make it work
 exactly like the SSE solution" carries precise intent that the model
@@ -10,7 +10,7 @@ can bind to the wrong artifact and then build the wrong thing —
 correctly. The refine gate makes that binding explicit and cheap to
 correct BEFORE work starts.
 
-## Install
+## Install on Claude Code
 
 ```
 /plugin marketplace add cdeust/session-optimizer
@@ -19,6 +19,28 @@ correct BEFORE work starts.
 
 The plugin wires the `UserPromptSubmit` hook and registers the `/refine`
 skill automatically. Requires Python 3.
+
+## Install on Codex
+
+```bash
+codex plugin marketplace add cdeust/session-optimizer
+codex plugin add refine-gate@session-optimizer-codex
+```
+
+Start a new Codex session, then invoke `$refine` explicitly or describe an
+ambiguous implementation request that matches the skill description. The
+Codex package is intentionally skills-only: it does not register the
+Claude-specific hook.
+
+## Install on Gemini CLI
+
+```bash
+gemini skills install https://github.com/cdeust/session-optimizer.git \
+  --path plugins/refine-gate/skills/refine
+```
+
+Confirm activation when Gemini asks for skill consent. Gemini receives the
+same `SKILL.md`; automatic per-prompt gating remains specific to Claude Code.
 
 ## How it works
 
@@ -89,6 +111,11 @@ extensions, and Cowork**. The claude.ai / Claude Desktop **chat** surface
 has no hook mechanism — there, upload `skills/refine/` as an Agent
 Skill (same SKILL.md format): the `/refine` procedure travels; the
 automatic per-prompt gate does not.
+
+Codex and Gemini use the portable Agent Skill. They receive the complete
+binding and verification procedure, but not the Claude hook. This separation
+keeps the Claude automation unchanged while avoiding unsupported hook claims
+on other hosts.
 
 ## License
 
