@@ -1,0 +1,26 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = [
+  "plugins/context-guard/hooks",
+  "plugins/context-guard/tools",
+  "plugins/refine-gate/hooks",
+  "plugins/refine-gate/tools",
+  "plugins/statusline/assets",
+]
+# coverage.py 7.10+ starts measurement at Python subprocess startup. The
+# existing contract tests invoke the shipped hook entry points as subprocesses,
+# so this measures what actually executes instead of replacing those tests with
+# direct function calls solely to make the percentage move.
+# source: https://coverage.readthedocs.io/en/7.15.2/subprocess.html
+patch = ["subprocess"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 0
+fail_under = 80
+exclude_also = [
+  "if __name__ == .__main__.:",
+]

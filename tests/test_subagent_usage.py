@@ -140,3 +140,95 @@ def test_session_dir_for_resolves_owning_session(tmp_path):
     assert su.session_dir_for(p) == "/x/proj/sessid"
     p2 = "/x/proj/sessid/subagents/agent-a.jsonl"
     assert su.session_dir_for(p2) == "/x/proj/sessid"
+
+
+def test_usage_add_context_and_dict():
+    left = su.Usage(input_tokens=1, output_tokens=2, cache_write_5m=3,
+                    cache_write_1h=4, cache_read=5, model="")
+    right = su.Usage(input_tokens=10, output_tokens=20, cache_write_5m=30,
+                     cache_write_1h=40, cache_read=50, tool_uses=2,
+                     web_search_requests=3, web_fetch_requests=4,
+                     model="sonnet", models={"sonnet"})
+    left.add(right)
+    assert left.context_tokens == 143
+    payload = left.to_dict()
+    assert payload["output_tokens"] == 22
+    assert payload["models"] == ["sonnet"]
+
+
+def test_parse_uses_largest_duplicate_and_uuid_fallback(tmp_path):
+    path = str(tmp_path / "agent-dups.jsonl")
+    records = [
+        {"uuid": "u1", "message": {"usage": {"input_tokens": 1}, "content": []}},
+        {"uuid": "u1", "message": {"usage": {"input_tokens": 9}, "content": []}},
+        {"message": {"model": "sonnet", "usage": {"output_tokens": 2},
+                     "content": ["text", {"type": "tool_use"}]}},
+    ]
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("bad\n\n")
+        for record in records:
+            fh.write(json.dumps(record) + "\n")
+    usage = su.parse_transcript_usage(path)
+    assert usage.input_tokens == 9
+    assert usage.output_tokens == 2
+    assert usage.tool_uses == 1
+    assert usage.model == "sonnet"
+
+
+def test_meta_agent_id_and_discovery_fallbacks(tmp_path):
+    bad = tmp_path / "bad.meta.json"
+    bad.write_text("bad")
+    assert su._read_meta(str(bad)) == ("", "", "")
+    assert su._agent_id_from_path("/x/not-an-agent.log") == "not-an-agent.log"
+    assert su.discover_subagents(str(tmp_path / "missing")) == []
+    assert su.session_dir_for("/x/no-subagents/agent-a.jsonl") == "/x/no-subagents"
+
+
+def test_token_format_and_session_iteration(tmp_path):
+    assert su._fmt_tokens(999) == "999"
+    assert su._fmt_tokens(1_000) == "1k"
+    assert su._fmt_tokens(1_500_000) == "1.5M"
+    assert list(su._iter_session_dirs(str(tmp_path / "missing"))) == []
+    session = tmp_path / "s1" / "subagents"
+    session.mkdir(parents=True)
+    (tmp_path / "file").write_text("x")
+    assert list(su._iter_session_dirs(str(tmp_path))) == [str(tmp_path / "s1")]
+
+
+def test_build_report_groups_records(monkeypatch):
+    usage = su.Usage(input_tokens=100, output_tokens=20, model="haiku", models={"haiku"})
+    rec = su.SubagentRecord("a", "Explore", "look", "tool", usage, 0.001, "/a")
+    monkeypatch.setattr(su, "_encoded_project_dir", lambda _cwd: "/project")
+    monkeypatch.setattr(su, "_iter_session_dirs", lambda _root: ["/project/s"])
+    monkeypatch.setattr(su, "discover_subagents", lambda _session: ["/a", "/b"])
+    monkeypatch.setattr(su, "subagent_record", lambda _path: rec)
+    report = su.build_report("/cwd")
+    assert report["subagent_count"] == 2
+    assert report["by_agent_type"]["Explore"]["count"] == 2
+    assert report["totals"]["usage"]["input_tokens"] == 200
+
+
+def test_print_table_and_cli_modes(monkeypatch, capsys, tmp_path):
+    empty = {
+        "project_dir": "/p", "subagent_count": 0,
+        "by_agent_type": {}, "totals": {"cost_usd": 0.0},
+    }
+    su._print_table(empty)
+    assert "no subagent transcripts" in capsys.readouterr().out
+
+    report = {
+        "project_dir": "/p", "subagent_count": 1,
+        "by_agent_type": {"Explore": {"count": 1, "usage": {
+            "input_tokens": 1000, "output_tokens": 2,
+            "cache_write_5m": 3, "cache_write_1h": 4, "cache_read": 5,
+        }, "cost_usd": 1.25}},
+        "totals": {"cost_usd": 1.25},
+    }
+    su._print_table(report)
+    assert "Explore" in capsys.readouterr().out
+
+    monkeypatch.setattr(su, "build_report", lambda _cwd: report)
+    assert su.main(["--json", str(tmp_path)]) == 0
+    assert '"subagent_count": 1' in capsys.readouterr().out
+    assert su.main([str(tmp_path)]) == 0
+    assert "TOTAL" in capsys.readouterr().out

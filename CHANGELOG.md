@@ -12,12 +12,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A skills-only Codex package for `refine-gate`, exposed through a repository
   marketplace at `.agents/plugins/marketplace.json`.
 - Gemini CLI installation through the existing portable Agent Skill.
+- OpenSSF Scorecard, CodeQL, Dependabot, and a hash-locked development
+  dependency set.
+- Security, contribution, conduct, governance, architecture, assurance-case,
+  Scorecard, and twelve-month roadmap documentation.
+- A release workflow that tests and self-verifies a source bundle, publishes
+  SHA-256 checksums, an executable manifest and CycloneDX SBOM, and creates
+  Sigstore build-provenance attestations.
+- Regression tests for context-guard hooks, prompt-refinement measurement,
+  statusline transcript handling, and release integrity.
 
 ### Changed
 
 - The `refine` skill now uses the portable Agent Skills frontmatter and
   host-neutral wording. Claude's `UserPromptSubmit` hook and plugin manifests
   are unchanged.
+- CI actions are pinned to full commit SHAs, workflow permissions are read-only
+  by default, ShellCheck is checksum-verified, and Python dependencies are
+  installed from the hashed lock file.
+- CI measures the shipped Python surface with coverage.py's subprocess support
+  and enforces an 80% floor; the initial complete measurement is 94%.
+- The repository introduction now leads with its portable Codex, Gemini CLI,
+  Claude, and Agent Skills surface while preserving explicit labels on
+  Claude-only integrations.
+
+### Fixed
+
+- The statusline transcript scanner now recognizes valid compaction records
+  whose JSON contains insignificant whitespace before confirming the parsed
+  marker values.
 
 ## [2.1.1] - 2026-07-26
 

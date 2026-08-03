@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Test, attest, and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install hash-locked test dependencies
+        run: python -m pip install --require-hashes -r requirements-dev.lock
+
+      - name: Run Python suite and coverage gate
+        run: |
+          coverage erase
+          coverage run -m pytest -q
+          coverage combine
+          coverage report
+
+      - name: Run shell suites
+        run: |
+          bash tests/statusline/test_heat_rgb.sh
+          bash tests/statusline/test_fit_and_pace.sh
+
+      - name: Build and self-verify release bundle
+        run: |
+          bash tools/build-release-bundle.sh dist
+          bash tools/verify-release-bundle.sh \
+            dist/session-optimizer.tar.gz \
+            dist/session-optimizer.tar.gz.sha256 \
+            dist/EXECUTABLE-MANIFEST.sha256
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            dist/session-optimizer.tar.gz
+            dist/EXECUTABLE-MANIFEST.sha256
+            dist/session-optimizer.cdx.json
+
+      - name: Extract release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            /^## \[/ {
+              if (in_section) exit
+              if (index($0, "[" ver "]")) { in_section = 1; next }
+            }
+            in_section { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "No CHANGELOG entry found for $version." > release-notes.md
+          fi
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/session-optimizer.tar.gz
+            dist/session-optimizer.tar.gz.sha256
+            dist/EXECUTABLE-MANIFEST.sha256
+            dist/EXECUTABLE-MANIFEST.sha256.sha256
+            dist/session-optimizer.cdx.json
+            dist/session-optimizer.cdx.json.sha256
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

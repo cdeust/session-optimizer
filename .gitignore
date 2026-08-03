@@ -4,5 +4,6 @@ __pycache__/
 .claude/
 .pytest_cache/
 .coverage
+.coverage.*
 coverage.xml
 htmlcov/
