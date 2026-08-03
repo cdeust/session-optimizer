@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-08-03
+
 ### Added
 
 - A skills-only Codex package for `refine-gate`, exposed through a repository
@@ -14,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gemini CLI installation through the existing portable Agent Skill.
 - OpenSSF Scorecard, CodeQL, Dependabot, and a hash-locked development
   dependency set.
+- OpenSSF Best Practices Passing evidence and its repository badge.
 - Security, contribution, conduct, governance, architecture, assurance-case,
   Scorecard, and twelve-month roadmap documentation.
 - A release workflow that tests and self-verifies a source bundle, publishes
@@ -32,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installed from the hashed lock file.
 - CI measures the shipped Python surface with coverage.py's subprocess support
   and enforces an 80% floor; the initial complete measurement is 94%.
+- Python contributions now name PEP 8 plus Ruff's selected rules as the coding
+  standard, and CI enforces those rules from the hash-locked toolchain.
 - The repository introduction now leads with its portable Codex, Gemini CLI,
   Claude, and Agent Skills surface while preserving explicit labels on
   Claude-only integrations.

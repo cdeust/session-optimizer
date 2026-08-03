@@ -333,7 +333,7 @@ description: "Auto-checkpoint ({level}) at {ctx:,} tokens — session {session_i
 ### File references
 (paths + line ranges the resumed session will need; seeded from git status —
 replace with the load-bearing files and add `path:start-end` line ranges)
-{os.linesep.join('- ' + l.strip() for l in modified.splitlines()) if modified else '- (working tree clean)'}
+{os.linesep.join('- ' + line.strip() for line in modified.splitlines()) if modified else '- (working tree clean)'}
 
 ### Errors and fixes
 <to be filled: each error hit this session and how it was fixed or worked around>

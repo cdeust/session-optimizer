@@ -33,6 +33,7 @@ jobs:
 
       - name: Run Python suite and coverage gate
         run: |
+          ruff check plugins tests
           coverage erase
           coverage run -m pytest -q
           coverage combine

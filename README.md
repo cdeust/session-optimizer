@@ -5,6 +5,7 @@
 [![CI](https://github.com/cdeust/session-optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/cdeust/session-optimizer/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/cdeust/session-optimizer/actions/workflows/codeql.yml/badge.svg)](https://github.com/cdeust/session-optimizer/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/cdeust/session-optimizer/badge)](https://securityscorecards.dev/viewer/?uri=github.com/cdeust/session-optimizer)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13938/badge)](https://www.bestpractices.dev/projects/13938)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Cross-platform prompt refinement for Codex, Gemini CLI, and Claude Code,
@@ -106,9 +107,10 @@ bash tests/statusline/test_fit_and_pace.sh
 ```
 
 CI (`.github/workflows/ci.yml`) runs the Python and shell suites, enforces at
-least 80% statement coverage over shipped Python, shellchecks the statusline,
-and validates every plugin, hook, and marketplace JSON. The current measured
-result is 94% (712 statements, 42 missed, 50 tests; measured 2026-08-03).
+least 80% statement coverage over shipped Python, enforces the documented
+Python and shell standards, and validates every plugin, hook, and marketplace
+JSON. The current CI result is 94% (715 statements, 45 missed, 50 tests;
+measured 2026-08-03).
 
 ## Project policy and security
 
