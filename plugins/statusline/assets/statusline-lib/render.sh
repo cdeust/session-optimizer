@@ -128,10 +128,10 @@ render_session() {
   # "main" so an understated number is never shown as if it were the total.
   if [ "$RANK" -ge 1 ]; then
     if [ -n "$cost_session" ]; then
-      cost_fmt=$(LC_NUMERIC=C awk "BEGIN{printf \"%.2f\",$cost_session}")
+      cost_fmt=$(LC_ALL=C awk -v v="${cost_session/,/.}" 'BEGIN{printf "%.2f", v+0}')
       line="${line:+$line ${SEP} }${KEY}session ${SUBTEXT}${DOLLAR}${cost_fmt}${RESET}"
     elif [ -n "$cost" ]; then
-      cost_fmt=$(LC_NUMERIC=C awk "BEGIN{printf \"%.2f\",$cost}")
+      cost_fmt=$(LC_ALL=C awk -v v="${cost/,/.}" 'BEGIN{printf "%.2f", v+0}')
       line="${line:+$line ${SEP} }${KEY}session main ${SUBTEXT}${DOLLAR}${cost_fmt}${RESET}"
     fi
   fi
