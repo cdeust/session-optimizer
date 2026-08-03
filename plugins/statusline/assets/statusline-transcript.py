@@ -219,6 +219,8 @@ def main():
             json.dump(result, fh)
         os.replace(tmp, CACHE_PATH)
     except OSError:
+        # Cache persistence is opportunistic; stdout remains the authoritative
+        # result for the caller when the cache directory is unavailable.
         pass
     json.dump(result, sys.stdout)
     sys.stdout.write("\n")

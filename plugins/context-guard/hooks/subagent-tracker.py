@@ -61,7 +61,7 @@ def _load_state(session_id):
         if isinstance(data, dict) and isinstance(data.get("agents"), dict):
             return data
     except (OSError, json.JSONDecodeError, ValueError):
-        pass
+        return {"session_id": session_id, "agents": {}}
     return {"session_id": session_id, "agents": {}}
 
 
@@ -144,7 +144,7 @@ def main():
         with open(_state_path(session_id), "w", encoding="utf-8") as fh:
             json.dump(state, fh)
     except OSError:
-        pass
+        return
     sys.exit(0)
 
 

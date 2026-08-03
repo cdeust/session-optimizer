@@ -94,12 +94,7 @@ def test_usage_line_and_reverse_tail_reader(tmp_path, monkeypatch):
 
 
 def test_subagent_summary_line_and_git_fail_open(tmp_path, monkeypatch):
-    real_join = guard.os.path.join
-    monkeypatch.setattr(
-        guard.os.path,
-        "join",
-        lambda root, leaf: str(tmp_path / leaf) if root == "/tmp" else real_join(root, leaf),
-    )
+    monkeypatch.setattr(guard, "STATE_DIR", str(tmp_path))
     assert guard._subagent_summary("none") == (0, 0, 0.0)
     state = tmp_path / "zetetic-subagents-s1.json"
     state.write_text(json.dumps({"totals": {

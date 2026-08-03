@@ -106,7 +106,7 @@ def _thresholds(model_id: str):
         if isinstance(loaded, dict) and isinstance(loaded.get("models"), list):
             table = loaded
     except (OSError, json.JSONDecodeError, ValueError):
-        pass
+        table = FALLBACK_THRESHOLDS
 
     mid = (model_id or "").lower()
     chosen = table.get("default") or FALLBACK_THRESHOLDS["default"]
@@ -122,7 +122,8 @@ def _thresholds(model_id: str):
         if 0 < warn < hard:
             return warn, hard
     except (KeyError, TypeError, ValueError):
-        pass
+        d = FALLBACK_THRESHOLDS["default"]
+        return d["warn"], d["hard"]
     d = FALLBACK_THRESHOLDS["default"]
     return d["warn"], d["hard"]
 
@@ -262,7 +263,7 @@ def _subagent_summary(session_id: str):
 
     Non-fatal: any read/parse problem returns zeros.
     """
-    path = os.path.join("/tmp", f"zetetic-subagents-{session_id}.json")
+    path = os.path.join(STATE_DIR, f"zetetic-subagents-{session_id}.json")
     try:
         with open(path, "r", encoding="utf-8") as fh:
             totals = (json.load(fh) or {}).get("totals") or {}
@@ -380,10 +381,11 @@ def _save_level(session_id: str, level: str) -> None:
         with open(path, "w", encoding="utf-8") as fh:
             json.dump({"level": level}, fh)
     except OSError:
-        pass
+        return
 
 
 def main():
+    data = {}
     try:
         data = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
@@ -402,6 +404,7 @@ def main():
         _exit()
 
     warn, hard = _thresholds(model_id)
+    level = "none"
     if ctx >= hard:
         level = "hard"
     elif ctx >= warn:
