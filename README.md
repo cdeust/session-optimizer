@@ -2,6 +2,11 @@
 
 <p align="center"><img src="assets/banner.svg" alt="session-optimizer — cross-platform prompt refinement with Claude-native session controls" width="100%"/></p>
 
+[![CI](https://github.com/cdeust/session-optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/cdeust/session-optimizer/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/cdeust/session-optimizer/actions/workflows/codeql.yml/badge.svg)](https://github.com/cdeust/session-optimizer/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/cdeust/session-optimizer/badge)](https://securityscorecards.dev/viewer/?uri=github.com/cdeust/session-optimizer)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 **Cross-platform prompt refinement for Codex, Gemini CLI, and Claude Code,
 plus Claude-native context-budget and telemetry controls.** The portable
 `refine-gate` skill binds vague requests to concrete evidence on all three
@@ -22,7 +27,7 @@ need; none requires the others.
 | [**refine-gate**](plugins/refine-gate) | Claude: `/plugin install refine-gate@session-optimizer-marketplace`; Codex/Gemini: [portable install](plugins/refine-gate/README.md) | A portable skill that binds vague prompt references ("the SSE solution", "like before", "still broken") to concrete artifacts with evidence, then selects an execution strategy from a research-backed table before any code is touched. Claude Code additionally receives an automatic `UserPromptSubmit` hook. |
 | [**statusline**](plugins/statusline) | `/plugin install statusline@session-optimizer-marketplace` | A multi-line status bar: discrete heat-track context bar tied to per-model checkpoint thresholds, one deduplicated cost ledger covering subagent spend, telemetry (tok/s, compactions, cache countdown), rate-limit gauges with burn-rate pacing, and terminal-width fitting. Ships an install skill — after installing, ask Claude to "install the statusline" and it wires everything. |
 
-For Codex and Gemini installation commands, see the
+For Codex, Gemini CLI, and Claude installation commands, see the
 [refine-gate README](plugins/refine-gate/README.md).
 
 ## Why
@@ -91,12 +96,30 @@ hooks and just announces the migration at session start.
 ## Tests
 
 ```bash
-pytest tests/test_refine_gate.py tests/test_subagent_usage.py
+python -m pip install --require-hashes -r requirements-dev.lock
+coverage erase
+coverage run -m pytest -q
+coverage combine
+coverage report
 bash tests/statusline/test_heat_rgb.sh
+bash tests/statusline/test_fit_and_pace.sh
 ```
 
-CI (`.github/workflows/ci.yml`) runs all three suites, shellchecks the
-statusline renderer, and validates every plugin/hook/marketplace JSON.
+CI (`.github/workflows/ci.yml`) runs the Python and shell suites, enforces at
+least 80% statement coverage over shipped Python, shellchecks the statusline,
+and validates every plugin, hook, and marketplace JSON. The current measured
+result is 94% (712 statements, 42 missed, 50 tests; measured 2026-08-03).
+
+## Project policy and security
+
+- [Architecture and host boundaries](docs/ARCHITECTURE.md)
+- [Security policy and release verification](SECURITY.md)
+- [Security assurance case](docs/ASSURANCE-CASE.md)
+- [Governance and access continuity](GOVERNANCE.md)
+- [Contributing and mandatory test policy](CONTRIBUTING.md)
+- [August 2026–July 2027 roadmap](docs/ROADMAP.md)
+- [OpenSSF Scorecard policy](docs/SCORECARD.md)
+- [Privacy policy](PRIVACY.md)
 
 ## License
 

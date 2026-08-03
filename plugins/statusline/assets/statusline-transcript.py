@@ -49,7 +49,12 @@ TAIL_WINDOW = 512 * 1024
 
 # Substring prefilters — cheap screen before JSON parse. A compaction boundary
 # carries at least one of these markers across Claude Code versions.
-COMPACT_MARKERS = ('"isCompactSummary"', '"subtype":"compact"', '"type":"summary"')
+# Prefilter values rather than serialized key/value pairs. JSON permits
+# arbitrary whitespace around `:`, and producers are not required to use the
+# compact separators Claude Code currently emits. `_is_compaction` parses and
+# confirms the exact key/value relationship after this cheap screen, so the
+# broader markers cannot inflate the count.
+COMPACT_MARKERS = ('"isCompactSummary"', '"compact"', '"summary"')
 
 
 def _epoch(ts):
