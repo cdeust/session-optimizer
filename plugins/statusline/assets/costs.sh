@@ -51,6 +51,11 @@
 #   used to exercise the day/month rollover branches deterministically (e.g. the
 #   month-boundary transition). Unset in production; real `date` is used.
 
+# Numeric formatting must be locale-independent. Under a comma-decimal locale
+# (e.g. fr_FR) awk/printf emit "19,78"; interpolated into a downstream awk
+# program that value is read as TWO arguments and the amount is truncated.
+export LC_ALL=C
+
 set -u
 
 COST_LOG="${STATUSLINE_COST_LOG:-${HOME}/.claude/statusline-costs.jsonl}"

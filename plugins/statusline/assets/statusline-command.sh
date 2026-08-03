@@ -63,6 +63,11 @@
 # (test harnesses pointing at a working copy).
 # Load order is dependency order: platform and palette own no dependencies,
 # everything else builds on them.
+# Numeric formatting must be locale-independent. Under a comma-decimal locale
+# (e.g. fr_FR) awk/printf emit "19,78"; interpolated into a downstream awk
+# program that value is read as TWO arguments and the amount is truncated.
+export LC_ALL=C
+
 STATUSLINE_LIB="${STATUSLINE_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/statusline-lib}"
 for _mod in platform palette fit severity format config gitctx session_state layout render; do
   if [ -r "${STATUSLINE_LIB}/${_mod}.sh" ]; then

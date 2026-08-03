@@ -19,8 +19,11 @@ fmt_tokens() {
 
 # fmt_usd — a dollar amount, thousands folded to "$1.2k".
 fmt_usd() {
-  local v="$1"
-  LC_NUMERIC=C awk "BEGIN{ if($v>=1000) printf \"\$%.1fk\",$v/1000; else printf \"\$%.2f\",$v }"
+  # Value passed via -v, never interpolated into the program text: a stray
+  # comma decimal must not become an argument separator.
+  local v="${1:-0}"
+  v="${v/,/.}"
+  LC_ALL=C awk -v v="$v" 'BEGIN{ v=v+0; if (v>=1000) printf "$%.1fk", v/1000; else printf "$%.2f", v }'
 }
 
 # fmt_dur — compact duration: "Xh Ym" / "Xm Ys" / "Xs" from a seconds count.
