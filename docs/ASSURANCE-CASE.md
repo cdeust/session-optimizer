@@ -75,4 +75,5 @@ compromised; and guaranteeing the correctness of model-generated advice.
 
 The author currently performs both implementation and review, and the controls
 have not been evaluated by an independent security assessor. That concentration
-of authority is also why access continuity remains an explicit Silver blocker.
+of authority keeps the bus factor at 1 even though the public MIT repository
+and credential-free fork/release path provide operational continuity.

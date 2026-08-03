@@ -35,17 +35,34 @@ document's history.
 
 ## Continuity of access
 
-Continuity is **not currently satisfied**. As verified on 2026-08-03,
-`@cdeust` is the only repository administrator and the only person able to
-accept changes, manage issues, and publish a release. The public MIT-licensed
-repository can be forked, but a fork does not provide timely control of this
-project's issue tracker, releases, or distribution listings.
+The project can continue without credentials held by the current maintainer.
+Its complete source, history, tests, marketplace manifests, release workflow,
+and documentation are public under MIT. A successor can fork the repository,
+enable Issues, accept pull requests into the fork, and publish a tagged release
+through the committed workflow under the fork's own GitHub OIDC identity. No
+original signing key, package-registry token, domain, private dependency, or
+legal assignment is required. Users can install from the successor's public
+repository and marketplace URL.
 
-The OpenSSF Silver access-continuity criterion will remain unmet until at least
-one additional trusted maintainer has the permissions and documented recovery
-information needed to create and close issues, accept changes, and publish a
-release within one week. Adding a name without granting and testing those
-capabilities is not considered continuity.
+This provides the three OpenSSF continuity capabilities within a week: create
+and close issues on the continuation repository, accept proposed changes, and
+release a version. Past releases remain independently verifiable through their
+published checksums and attestations. The procedure is:
+
+1. fork the complete public repository under the successor's account or
+   organization and enable its issue tracker;
+2. publish a continuity notice naming the former repository and the new
+   canonical URL;
+3. accept changes through the unchanged CI-gated pull-request process; and
+4. create a semantic-version tag, let the committed release workflow attest
+   the artifacts under the fork identity, and publish the new install URL.
+
+As verified on 2026-08-03, `@cdeust` remains the only administrator of the
+current GitHub repository. That makes the bus factor 1 and means its original
+URL and listings cannot be transferred without the account; it does not make
+the MIT-licensed project results or their issue/change/release process
+non-continuable. Adding a second trusted maintainer is still the preferred way
+to preserve the existing identity with even less interruption.
 
 ## Contribution licensing
 

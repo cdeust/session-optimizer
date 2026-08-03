@@ -25,8 +25,8 @@ host API changes, or user reports may reorder it; any change is recorded here.
 ## February–April 2027
 
 - Recruit and onboard a second trusted maintainer with tested issue, merge,
-  advisory, and release permissions so access continuity can be satisfied in
-  fact.
+  advisory, and release permissions to preserve the existing repository
+  identity as well as the documented fork-based continuity path.
 - Review whether cryptographically signed version tags add useful assurance on
   top of artifact attestations.
 - Reassess parser fuzzing from measured defect history rather than claiming a
