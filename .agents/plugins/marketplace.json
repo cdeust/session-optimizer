@@ -1,7 +1,7 @@
 {
   "name": "session-optimizer-codex",
   "interface": {
-    "displayName": "Session Optimizer"
+    "displayName": "Session Optimizer — Refine Gate"
   },
   "plugins": [
     {

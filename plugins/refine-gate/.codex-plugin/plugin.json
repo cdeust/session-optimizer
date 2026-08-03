@@ -11,6 +11,9 @@
   "repository": "https://github.com/cdeust/session-optimizer",
   "license": "MIT",
   "keywords": [
+    "agent-skills",
+    "codex",
+    "gemini-cli",
     "prompt-engineering",
     "intent-binding",
     "evidence",

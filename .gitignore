@@ -3,3 +3,6 @@ __pycache__/
 .DS_Store
 .claude/
 .pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
