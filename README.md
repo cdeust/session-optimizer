@@ -1,16 +1,16 @@
 # session-optimizer
 
-<p align="center"><img src="assets/banner.svg" alt="session-optimizer — a visible, enforced context budget for long Claude Code sessions" width="100%"/></p>
+<p align="center"><img src="assets/banner.svg" alt="session-optimizer — cross-platform prompt refinement with Claude-native session controls" width="100%"/></p>
 
-Three small, dependency-light, **independently installable** plugins for
-keeping long [Claude Code](https://code.claude.com) sessions **readable,
-cheap, and un-poisoned** — shipped from one marketplace. Install exactly the
-ones you want; none requires the others.
+**Cross-platform prompt refinement for Codex, Gemini CLI, and Claude Code,
+plus Claude-native context-budget and telemetry controls.** The portable
+`refine-gate` skill binds vague requests to concrete evidence on all three
+hosts. `context-guard` and `statusline` add lifecycle automation where Claude
+Code exposes the required hooks, session files, and statusline metrics.
 
-`refine-gate` is also packaged as a portable Agent Skill for Codex and Gemini
-CLI. `context-guard` and `statusline` remain Claude-specific because their
-behavior depends on Claude lifecycle hooks, session files, and statusline
-metrics.
+The repository ships three small, dependency-light, **independently
+installable** packages. Install exactly the ones your host supports and you
+need; none requires the others.
 
 ```
 /plugin marketplace add cdeust/session-optimizer
@@ -19,7 +19,7 @@ metrics.
 | Plugin | One-line install | What it does |
 |---|---|---|
 | [**context-guard**](plugins/context-guard) | `/plugin install context-guard@session-optimizer-marketplace` | A `Stop` hook enforces a per-model context budget: at the WARN threshold it writes a mechanical checkpoint stub and delegates persistence to a budgeted `memory-writer` subagent as a reflection pause; at the hard cap it forces checkpoint → `/clear` → resume. A `SubagentStop` tracker surfaces true session spend (main thread + subagents). |
-| [**refine-gate**](plugins/refine-gate) | `/plugin install refine-gate@session-optimizer-marketplace` | A `UserPromptSubmit` hook + `/refine` skill that bind vague prompt references ("the SSE solution", "like before", "still broken") to concrete artifacts with evidence, then select an execution strategy from a research-backed table — before any code is touched. |
+| [**refine-gate**](plugins/refine-gate) | Claude: `/plugin install refine-gate@session-optimizer-marketplace`; Codex/Gemini: [portable install](plugins/refine-gate/README.md) | A portable skill that binds vague prompt references ("the SSE solution", "like before", "still broken") to concrete artifacts with evidence, then selects an execution strategy from a research-backed table before any code is touched. Claude Code additionally receives an automatic `UserPromptSubmit` hook. |
 | [**statusline**](plugins/statusline) | `/plugin install statusline@session-optimizer-marketplace` | A multi-line status bar: discrete heat-track context bar tied to per-model checkpoint thresholds, one deduplicated cost ledger covering subagent spend, telemetry (tok/s, compactions, cache countdown), rate-limit gauges with burn-rate pacing, and terminal-width fitting. Ships an install skill — after installing, ask Claude to "install the statusline" and it wires everything. |
 
 For Codex and Gemini installation commands, see the
