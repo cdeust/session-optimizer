@@ -7,7 +7,8 @@ private process in [SECURITY.md](SECURITY.md), not a public issue.
 ## Development setup
 
 Python 3.11+, Bash, and Git are required. ShellCheck 0.11.0 is required for the
-shell gate; CI verifies the downloaded archive before installing it.
+shell gate; CI verifies the downloaded archive before installing it. Ruff is
+installed from the hash-locked Python development requirements.
 
 ```bash
 python -m venv .venv
@@ -42,6 +43,7 @@ coverage erase
 coverage run -m pytest -q
 coverage combine
 coverage report
+ruff check plugins tests
 bash tests/statusline/test_heat_rgb.sh
 bash tests/statusline/test_fit_and_pace.sh
 shellcheck plugins/statusline/assets/statusline-command.sh \
@@ -63,6 +65,12 @@ bash tools/verify-release-bundle.sh \
 
 ## Style and compatibility
 
+- Python generally follows [PEP 8](https://peps.python.org/pep-0008/) and the
+  selected Ruff `E4`, `E7`, `E9`, and `F` rules; `ruff check plugins tests` is
+  the automatic gate.
+- Shell generally follows the
+  [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html)
+  where it applies to POSIX shell; ShellCheck 0.11.0 is the automatic gate.
 - Keep the three plugins independently installable.
 - Preserve the portable Agent Skill contract for Codex and Gemini while
   identifying Claude-only hook, transcript, and statusline behavior plainly.

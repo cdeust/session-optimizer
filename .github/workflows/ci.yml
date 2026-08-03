@@ -47,6 +47,9 @@ jobs:
           coverage report
           coverage xml
 
+      - name: Enforce Python coding standard
+        run: ruff check plugins tests
+
       - name: Statusline heat-track tests
         run: bash tests/statusline/test_heat_rgb.sh
 

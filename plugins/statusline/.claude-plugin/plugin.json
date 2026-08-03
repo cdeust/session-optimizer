@@ -1,7 +1,7 @@
 {
   "name": "statusline",
   "description": "Multi-line Claude Code statusline with a discrete heat-track context bar tied to per-model checkpoint thresholds, one deduplicated cost ledger covering subagent spend, per-session telemetry (tok/s, compactions, prompt-cache countdown), rate-limit gauges with burn-rate pacing, and terminal-width fitting. Words, not emoji: every value is named. Ships an install skill that copies the bundled assets into ~/.claude and wires settings.json.",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "author": {
     "name": "Clement Deust",
     "email": "admin@ai-architect.tools"
