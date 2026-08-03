@@ -66,7 +66,12 @@
 # Numeric formatting must be locale-independent. Under a comma-decimal locale
 # (e.g. fr_FR) awk/printf emit "19,78"; interpolated into a downstream awk
 # program that value is read as TWO arguments and the amount is truncated.
-export LC_ALL=C
+# Only the numeric category may be forced: LC_ALL=C would also pin LC_CTYPE,
+# and vislen() measures with ${#s}, which then counts UTF-8 bytes instead of
+# columns (a 3-byte glyph reads as width 3). LC_ALL must be unset first —
+# it outranks LC_NUMERIC when the environment sets it.
+unset LC_ALL
+export LC_NUMERIC=C
 
 STATUSLINE_LIB="${STATUSLINE_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/statusline-lib}"
 for _mod in platform palette fit severity format config gitctx session_state layout render; do

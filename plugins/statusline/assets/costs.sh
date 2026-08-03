@@ -54,7 +54,11 @@
 # Numeric formatting must be locale-independent. Under a comma-decimal locale
 # (e.g. fr_FR) awk/printf emit "19,78"; interpolated into a downstream awk
 # program that value is read as TWO arguments and the amount is truncated.
-export LC_ALL=C
+# Only the numeric category is forced, matching statusline-command.sh: LC_ALL=C
+# would also pin LC_CTYPE, which breaks ${#s} width measurement. LC_ALL must be
+# unset first — it outranks LC_NUMERIC when the environment sets it.
+unset LC_ALL
+export LC_NUMERIC=C
 
 set -u
 
