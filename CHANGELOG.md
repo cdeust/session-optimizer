@@ -7,7 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-08-10
+
+Statusline only. No change to context-guard or refine-gate.
+
+### Fixed
+
+- **Cost figures are no longer locale-dependent.** Under a comma-decimal
+  locale (`LC_NUMERIC=fr_FR.UTF-8`) the ledger reported `$0`: `costs.sh` wrote
+  comma-decimal amounts into its cache with no locale guard, and the render
+  path then interpolated an unguarded value into `awk` program text, where
+  the comma became an argument separator and truncated the amount. `costs.sh`
+  and `statusline-command.sh` now force `LC_NUMERIC=C` (unsetting any
+  inherited `LC_ALL` first, since it outranks `LC_NUMERIC`); `fmt_usd` and
+  `cost_fmt` pass the value via `awk -v` instead of interpolating it, so a
+  stray comma can never become syntax. An earlier fix in this cycle forced
+  `LC_ALL=C` outright, which also pinned `LC_CTYPE` and broke `vislen()`'s
+  UTF-8 width measurement (a 3-byte glyph read as width 3); only `LC_NUMERIC`
+  is forced now. Verified on a `fr_FR.UTF-8` host: `costs.sh today` `$0` to
+  the correct amount; `tests/statusline/test_fit_and_pace.sh` green under
+  both `LC_ALL=fr_FR.UTF-8` and `LC_ALL=C`. Existing caches written with
+  comma decimals regenerate with dot decimals on the next refresh.
+
 ## [2.2.0] - 2026-08-03
+
+Provenance note: this release also carries every change recorded under the
+**[2.1.0]** and **[2.1.1]** sections below, including the `statusline-costs.py`
+removal and renderer-directory **BREAKING** change from [2.1.0]. Those two
+sections were written in-tree with a date but were never tagged or published
+as a release — no `v2.1.0` or `v2.1.1` git tag exists. `v2.0.0` (2026-07-23)
+was the release preceding this one; `v2.2.0` (2026-08-03) is where those
+changes first actually shipped.
 
 ### Added
 
@@ -49,6 +79,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.1.1] - 2026-07-26
 
+**Never tagged.** This date records when the work landed in-tree; no `v2.1.1`
+git tag or release artifact was ever cut. The changes below first shipped
+under `v2.2.0` — see the provenance note on that section.
+
 Statusline only. No change to context-guard or refine-gate.
 
 ### Fixed
@@ -85,6 +119,10 @@ Statusline only. No change to context-guard or refine-gate.
   control against the same 5 ms budget.
 
 ## [2.1.0] - 2026-07-26
+
+**Never tagged.** This date records when the work landed in-tree; no `v2.1.0`
+git tag or release artifact was ever cut. The BREAKING change below first
+shipped under `v2.2.0` — see the provenance note on that section.
 
 Statusline only. No change to context-guard or refine-gate.
 
