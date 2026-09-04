@@ -50,7 +50,8 @@ def test_protocol_detects_project_tool_and_renders_both_contracts(tmp_path, monk
     generic_hard = protocol.block_reason(200_000, "", 200_000)
     scoped_hard = protocol.block_reason_scoped(200_000, "/tmp/check.md", 200_000)
     assert "memory-writer" in generic_warn
-    assert "remember endpoint" in scoped_warn
+    assert "MEMORY_AGENT_ID" in scoped_warn
+    assert "remember call" in scoped_warn
     assert "latest.md" in generic_hard
     assert "MEMORY_AGENT_ID" in scoped_hard
 
@@ -123,22 +124,55 @@ def test_stub_and_level_state_round_trip(tmp_path, monkeypatch):
     assert (Path(stub).parent / "latest.md").read_text() == text
 
     monkeypatch.setattr(guard, "STATE_DIR", str(tmp_path))
-    assert guard._load_level("fresh") == "none"
-    guard._save_level("fresh", "warn")
-    assert guard._load_level("fresh") == "warn"
+    assert guard._load_state("fresh") == {"level": "none"}
+    guard._save_state("fresh", {"level": "warn", "initial_ctx": 190_000})
+    assert guard._load_state("fresh") == {"level": "warn", "initial_ctx": 190_000}
     (tmp_path / "zetetic-ctxguard-bad.json").write_text("bad")
-    assert guard._load_level("bad") == "none"
+    assert guard._load_state("bad") == {"level": "none"}
+    (tmp_path / "zetetic-ctxguard-legacy.json").write_text('{"nope": true}')
+    assert guard._load_state("legacy") == {"level": "none"}
 
 
-def _run_guard_main(monkeypatch, payload, *, ctx=(190_000, "opus"), prev="none", scoped=False):
+def test_has_activity_since_and_line_has_tool_use(tmp_path):
+    tool_use_line = json.dumps({"message": {"content": [
+        {"type": "text", "text": "hi"}, {"type": "tool_use", "name": "Read"},
+    ]}})
+    text_only_line = json.dumps({"message": {"content": [{"type": "text", "text": "hi"}]}})
+    assert guard._line_has_tool_use(tool_use_line) is True
+    assert guard._line_has_tool_use(text_only_line) is False
+    assert guard._line_has_tool_use("not json") is False
+    assert guard._line_has_tool_use("") is False
+
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(text_only_line + "\n" + text_only_line + "\n")
+    # Nothing but text since offset 0 -> no activity.
+    assert guard._has_activity_since(str(transcript), 0) is False
+    # Missing file -> fail-open (True), never silently suppress.
+    assert guard._has_activity_since(str(tmp_path / "missing.jsonl"), 0) is True
+    # since_offset >= size -> nothing appended -> no activity.
+    size = transcript.stat().st_size
+    assert guard._has_activity_since(str(transcript), size) is False
+
+    with_tool = tmp_path / "with_tool.jsonl"
+    with_tool.write_text(text_only_line + "\n" + tool_use_line + "\n")
+    assert guard._has_activity_since(str(with_tool), 0) is True
+    # Activity only appears before since_offset -> not counted as "since".
+    offset_after_tool_use = len((text_only_line + "\n" + tool_use_line + "\n").encode("utf-8"))
+    with_tool.write_text(text_only_line + "\n" + tool_use_line + "\n" + text_only_line + "\n")
+    assert guard._has_activity_since(str(with_tool), offset_after_tool_use) is False
+
+
+def _run_guard_main(monkeypatch, payload, *, ctx=(190_000, "opus"), prev="none",
+                     scoped=False, has_activity=True):
     stdin = io.StringIO(payload if isinstance(payload, str) else json.dumps(payload))
     stdout = io.StringIO()
     monkeypatch.setattr(guard.sys, "stdin", stdin)
     monkeypatch.setattr(guard.sys, "stdout", stdout)
     monkeypatch.setattr(guard, "_read_last_usage", lambda _path: ctx)
     monkeypatch.setattr(guard, "_thresholds", lambda _model: (180_000, 200_000))
-    monkeypatch.setattr(guard, "_load_level", lambda _sid: prev)
-    monkeypatch.setattr(guard, "_save_level", lambda *_: None)
+    monkeypatch.setattr(guard, "_load_state", lambda _sid: {"level": prev})
+    monkeypatch.setattr(guard, "_save_state", lambda *_: None)
+    monkeypatch.setattr(guard, "_has_activity_since", lambda *_: has_activity)
     monkeypatch.setattr(guard, "_write_stub", lambda *_: "/tmp/check.md")
     monkeypatch.setattr(guard, "_subagent_line", lambda _sid: "\nsubagents")
     monkeypatch.setattr(guard.checkpoint_protocol, "detect_memory_tool", lambda _cwd: "/tool" if scoped else None)
@@ -154,6 +188,48 @@ def test_guard_main_fail_open_and_threshold_paths(monkeypatch):
     assert _run_guard_main(monkeypatch, {}, ctx=(None, None)) == ""
     assert _run_guard_main(monkeypatch, {}, ctx=(100, "opus")) == ""
     assert _run_guard_main(monkeypatch, {}, prev="warn") == ""
+
+
+def test_guard_main_skips_silently_when_no_activity_since_last_fire(monkeypatch):
+    # The exact reproduced bug: ctx above WARN, but nothing checkpointable
+    # happened since session start / last fire -> exit silently, no block.
+    assert _run_guard_main(monkeypatch, {"session_id": "s", "cwd": "/x"},
+                            has_activity=False) == ""
+
+
+def test_guard_main_distrusts_a_stale_offset_from_a_different_transcript(tmp_path, monkeypatch):
+    """A WARN fire recorded an offset against transcript A; a later Stop on
+    the same session_id but a DIFFERENT transcript_path (rotation/compaction)
+    must not compare that offset against the new file -- it must rescan from
+    0, or a coincidentally-similar offset could wrongly suppress HARD."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(guard, "STATE_DIR", str(tmp_path))
+    tool_use_line = json.dumps({"message": {"content": [{"type": "tool_use", "name": "Read"}]}})
+    usage_line = lambda ctx: json.dumps({"message": {"model": "opus", "usage": {"input_tokens": ctx}}})
+
+    transcript_a = tmp_path / "a.jsonl"
+    transcript_a.write_text(usage_line(185_000) + "\n" + tool_use_line + "\n")
+    guard._save_state("s", {
+        "level": "warn", "last_fire_offset": transcript_a.stat().st_size,
+        "transcript_path": str(transcript_a),
+    })
+
+    transcript_b = tmp_path / "b.jsonl"
+    transcript_b.write_text(tool_use_line + "\n" + usage_line(210_000) + "\n")
+
+    stdin = io.StringIO(json.dumps({
+        "session_id": "s", "cwd": str(tmp_path), "transcript_path": str(transcript_b),
+    }))
+    stdout = io.StringIO()
+    monkeypatch.setattr(guard.sys, "stdin", stdin)
+    monkeypatch.setattr(guard.sys, "stdout", stdout)
+    monkeypatch.setattr(guard, "_thresholds", lambda _model: (180_000, 200_000))
+    monkeypatch.setattr(guard.checkpoint_protocol, "detect_memory_tool", lambda _cwd: None)
+    with pytest.raises(SystemExit) as exc:
+        guard.main()
+    assert exc.value.code == 0
+    decision = json.loads(stdout.getvalue())
+    assert decision["decision"] == "block"
 
 
 def test_guard_main_warn_and_hard_payloads(monkeypatch):

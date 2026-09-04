@@ -287,6 +287,90 @@ def _subagent_line(session_id: str) -> str:
             f"~${cost:.2f}.")
 
 
+def _has_activity_since(transcript_path: str, since_offset: int) -> bool:
+    """True if the transcript contains at least one tool_use content block
+    at or after byte `since_offset`.
+
+    Forward bounded scan mirroring the backward TAIL_CHUNK/TAIL_MAX_BYTES
+    scan already used by _read_last_usage: seek to since_offset, read
+    forward in TAIL_CHUNK blocks up to TAIL_MAX_BYTES total, early-exit on
+    the first tool_use found. Fail-open: if the scan cap is hit without
+    finding one, return True (preserve the previous always-fire behavior
+    rather than risk silently dropping a checkpoint we could not fully
+    verify is safe to skip). since_offset larger than the current file size
+    means the offset is stale (the transcript was replaced/rotated between
+    fires) and cannot be trusted as "caught up" -- rescan from 0 instead of
+    concluding there is nothing new.
+
+    Precondition:  transcript_path is a path string (or None); since_offset
+                   is a non-negative int (0 scans the whole file).
+    Postcondition: True if a tool_use block was found or the file could not
+                   be read/parsed at all (fail-open); False only after a
+                   clean scan to EOF within the byte cap found none.
+    """
+    try:
+        size = os.stat(transcript_path).st_size
+    except (OSError, TypeError, ValueError):
+        return True  # can't tell -> don't silently skip
+
+    since_offset = max(0, since_offset or 0)
+    if since_offset > size:
+        since_offset = 0  # stale baseline (transcript replaced/rotated) -> rescan
+    elif since_offset == size:
+        return False  # nothing appended since last fire / session start
+
+    try:
+        fh = open(transcript_path, "rb")
+    except (OSError, TypeError, ValueError):
+        return True
+
+    try:
+        pos = since_offset
+        scanned = 0
+        carry = ""
+        while pos < size and scanned < TAIL_MAX_BYTES:
+            fh.seek(pos)
+            chunk_bytes = fh.read(min(TAIL_CHUNK, size - pos))
+            if not chunk_bytes:
+                break
+            pos += len(chunk_bytes)
+            scanned += len(chunk_bytes)
+            buf = carry + chunk_bytes.decode("utf-8", errors="replace")
+            lines = buf.split("\n")
+            carry = lines[-1]  # last (possibly partial) line held for next chunk
+            for line in lines[:-1]:
+                if _line_has_tool_use(line):
+                    return True
+        if carry and _line_has_tool_use(carry):
+            return True
+        if pos >= size:
+            return False  # reached EOF cleanly, no tool_use found
+        return True  # cap hit before EOF -> fail-open
+    except OSError:
+        return True
+    finally:
+        fh.close()
+
+
+def _line_has_tool_use(line: str) -> bool:
+    """True if a JSONL transcript line's assistant message content carries
+    a tool_use block. Pure, no I/O."""
+    line = line.strip()
+    if not line:
+        return False
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return False
+    content = (obj.get("message") or {}).get("content")
+    if not isinstance(content, list):
+        return False
+    return any(
+        isinstance(block, dict) and block.get("type") == "tool_use"
+        for block in content
+    )
+
+
 def _git(cwd: str, *args: str) -> str:
     try:
         out = subprocess.run(
@@ -366,20 +450,29 @@ targeted Reads only when editing.
     return per_session
 
 
-def _load_level(session_id: str) -> str:
+def _load_state(session_id: str) -> dict:
+    """Return the persisted state dict for this session, defaulting to
+    {"level": "none"} on any missing/malformed/legacy file. Additive schema:
+    level (str), initial_ctx/last_fire_ctx (int), last_fire_offset (int,
+    transcript byte offset at the most recent real fire -- the baseline for
+    the next _has_activity_since check), fired_at (ISO str). Telemetry
+    fields are for future replay/ablation only; they gate nothing yet."""
     path = os.path.join(STATE_DIR, f"zetetic-ctxguard-{session_id}.json")
     try:
         with open(path, "r", encoding="utf-8") as fh:
-            return json.load(fh).get("level", "none")
+            data = json.load(fh)
+        if isinstance(data, dict) and "level" in data:
+            return data
     except (OSError, json.JSONDecodeError):
-        return "none"
+        pass
+    return {"level": "none"}
 
 
-def _save_level(session_id: str, level: str) -> None:
+def _save_state(session_id: str, state: dict) -> None:
     path = os.path.join(STATE_DIR, f"zetetic-ctxguard-{session_id}.json")
     try:
         with open(path, "w", encoding="utf-8") as fh:
-            json.dump({"level": level}, fh)
+            json.dump(state, fh)
     except OSError:
         return
 
@@ -412,13 +505,41 @@ def main():
     else:
         _exit()
 
-    prev = _load_level(session_id)
+    state = _load_state(session_id)
+    prev = state.get("level", "none")
     # Only act when crossing UP into a not-yet-fired level.
     if LEVEL_ORDER[level] <= LEVEL_ORDER[prev]:
         _exit()
 
+    # Activity gate: skip silently if nothing checkpointable happened since
+    # the last fire (or session start). The byte offset is only meaningful
+    # against the SAME growing transcript file -- if transcript_path changed
+    # since the last fire (rotation, compaction, a different session reusing
+    # this session_id), a stale offset compared against an unrelated file is
+    # worse than useless, so it is only trusted when the path matches.
+    # Does NOT advance level/offset/path on skip, so the next Stop re-checks
+    # from the same baseline and fires as soon as real activity appears --
+    # never permanently silenced.
+    since_offset = (
+        state.get("last_fire_offset", 0)
+        if state.get("transcript_path") == transcript_path else 0
+    )
+    if not _has_activity_since(transcript_path, since_offset):
+        _exit()
+
     stub_path = _write_stub(session_id, cwd, ctx, model_id, level)
-    _save_level(session_id, level)
+    try:
+        new_offset = os.stat(transcript_path).st_size
+    except (OSError, TypeError, ValueError):
+        new_offset = since_offset
+    _save_state(session_id, {
+        "level": level,
+        "initial_ctx": state.get("initial_ctx") or ctx,
+        "last_fire_ctx": ctx,
+        "last_fire_offset": new_offset,
+        "transcript_path": transcript_path,
+        "fired_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    })
     sub_line = _subagent_line(session_id)
 
     # Runtime detection: the scoped-memory-layer wording is emitted only when

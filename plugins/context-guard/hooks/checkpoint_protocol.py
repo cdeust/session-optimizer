@@ -49,8 +49,8 @@ def _warn_header(ctx: int, warn: int, hard: int) -> str:
         f"⚠ CHECKPOINT THRESHOLD — {ctx:,} input tokens "
         f"(≥ {warn:,} for this model; hard stop at {hard:,}).\n"
         f"This is a reflection pause, NOT the end of the session. While you still "
-        f"have headroom, persist the semantic checkpoint via a budgeted subagent, "
-        f"then resume the user's task:\n\n"
+        f"have headroom, persist the semantic checkpoint directly (cheapest path — "
+        f"a few hundred tokens), then resume the user's task:\n\n"
         f"1. Distill the session into the summary schema ({SCHEMA}).\n"
     )
 
@@ -62,17 +62,11 @@ def _warn_footer(hard: int) -> str:
     )
 
 
-_SPAWN = (
-    "2. Spawn the memory-writer subagent (Agent tool, subagent_type "
-    "\"memory-writer\", or \"context-guard:memory-writer\" if only the "
-    "plugin copy is installed). "
-)
-
-_SPAWN_FALLBACK = (
-    "Do not write the checkpoint yourself unless the spawn fails (agent not "
-    "installed — it ships in the context-guard plugin under "
-    "agents/memory-writer.md; install with /agents or copy it to "
-    "~/.claude/agents/).\n"
+_DELEGATE_FALLBACK = (
+    "Only spawn the memory-writer subagent (Agent tool, subagent_type "
+    "\"memory-writer\", or \"context-guard:memory-writer\") instead if you are "
+    "yourself close to the hard cap and want to preserve your own remaining "
+    "headroom, or if the direct write below fails.\n"
 )
 
 
@@ -80,12 +74,10 @@ def warn_reason(ctx: int, stub_path: str, warn: int, hard: int) -> str:
     """WARN instructions, generic variant: stub-file protocol only."""
     return (
         _warn_header(ctx, warn, hard)
-        + _SPAWN
-        + f"Pass it: your distilled summary and the checkpoint stub path "
-          f"{stub_path or 'n/a'}. It merges the summary into the stub's schema "
-          f"sections in place and mirrors it to latest.md in the same "
-          f"directory. "
-        + _SPAWN_FALLBACK
+        + f"2. Write it directly: fill the stub file at "
+          f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place, "
+          f"replacing its placeholders with the distilled summary. "
+        + _DELEGATE_FALLBACK
         + _warn_footer(hard)
     )
 
@@ -94,15 +86,13 @@ def warn_reason_scoped(ctx: int, stub_path: str, warn: int, hard: int) -> str:
     """WARN instructions when a scoped memory layer is installed."""
     return (
         _warn_header(ctx, warn, hard)
-        + _SPAWN
-        + f"Pass it: your distilled summary, your memory scope + "
-          f"MEMORY_AGENT_ID, and the checkpoint stub path {stub_path or 'n/a'}. "
-          f"It merges the summary into the schema and persists it to "
-          f"/memories/<your-scope>/checkpoint.md plus durable WHY-level facts "
-          f"via the store's remember endpoint (agent_topic-scoped); if the "
-          f"scoped store is unreachable it falls back to filling the stub file "
-          f"in place. "
-        + _SPAWN_FALLBACK
+        + f"2. Write it directly: MEMORY_AGENT_ID=<your-scope> "
+          f"tools/memory-tool.sh rethink /memories/<your-scope>/checkpoint.md "
+          f"\"<distilled summary>\", plus one remember call per WHY-level fact "
+          f"(agent_topic-scoped) — or, if the scoped store is unreachable, fill "
+          f"the stub file at "
+          f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place. "
+        + _DELEGATE_FALLBACK
         + _warn_footer(hard)
     )
 
