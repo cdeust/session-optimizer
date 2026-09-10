@@ -20,7 +20,7 @@
 # of whoever runs the harness; a reader with padding P configured adds 2*P.
 #
 # Isolation: STATUSLINE_COST_LOG points at a throwaway ledger under a temp dir,
-# so a measurement run never touches ~/.claude/statusline-costs.jsonl. All
+# so a measurement run never touches the installed ledger under state/. All
 # fixture data is synthetic.
 set -uo pipefail
 

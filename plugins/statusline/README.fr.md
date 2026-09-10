@@ -19,43 +19,64 @@ pareil partout. L'état est porté par la couleur et le nombre, rien d'autre.
 /plugin install statusline@session-optimizer-marketplace
 ```
 
-Puis demander à Claude d'**« installer la statusline »** — le skill
-`statusline` embarqué copie les fichiers dans `~/.claude/` et déclare
-`statusLine` dans `~/.claude/settings.json` (sauvegardes incluses, fichiers
-de config jamais écrasés). Redémarrer Claude Code pour activer. Requiert
-`jq` et `python3`.
+Puis demander à Claude d'**« installer la statusline »** : le skill
+`statusline` embarqué lance `install.sh install`, qui place tout sous
+`~/.claude/statusline/` et déclare `statusLine` dans
+`~/.claude/settings.json` (fichiers de config jamais écrasés). Redémarrer
+Claude Code pour activer. Requiert `jq` et `python3`.
 
-Un hook `SessionStart` maintient les fichiers de code à jour après
-`plugin update` ; `statusline-budget.json` et `ctxguard-thresholds.json`
-ne sont jamais touchés automatiquement.
+Un hook `SessionStart` lance le même script en mode `sync` après
+`plugin update` : idempotent, il n'affiche que ce qu'il a changé et ne touche
+jamais `statusline-budget.json` ni `ctxguard-thresholds.json`.
 
 <details>
 <summary>Installation manuelle (sans le système de plugins)</summary>
 
-1. Copier tout le contenu de `assets/` dans `~/.claude/` — y compris le
-   répertoire `statusline-lib/` entier, qui doit se trouver à côté du moteur de
-   rendu — puis `chmod +x ~/.claude/statusline-command.sh ~/.claude/costs.sh`.
-2. Déclarer la statusline dans `~/.claude/settings.json` :
-   ```json
-   { "statusLine": { "type": "command", "command": "bash ~/.claude/statusline-command.sh", "padding": 1, "refreshInterval": 10 } }
-   ```
-3. Adapter `statusline-budget.json` à ses propres préférences.
+1. Depuis un clone de ce dépôt : `bash plugins/statusline/install.sh install`.
+   C'est le script qu'utilisent le skill et le hook ; `HOME` fixe l'emplacement
+   de `~/.claude`, `STATUSLINE_DIR` remplace le répertoire d'installation.
+2. Adapter `~/.claude/statusline/statusline-budget.json` à ses propres préférences.
 
 </details>
+
+## Ce qui se retrouve sur le disque
+
+```
+~/.claude/statusline/                 toute l'installation, un seul répertoire
+  statusline-command.sh  lib/         moteur de rendu et ses modules
+  costs.sh  pricing.json              CLI du registre de coûts et ses tarifs
+  transcript.py                       télémétrie par session (arrière-plan, TTL 15 s)
+  README.md                           ce fichier
+  statusline-budget.json              config personnelle : créée une fois, jamais écrasée
+  state/                              tout ce qui est écrit à l'exécution
+    costs.jsonl                       le registre (+ .lock, .cleanup-stamp pendant l'écriture)
+    sessions/<session>.main|.sub      caches de prix par session, rétention 30 jours
+    transcript-cache.json             cache de télémétrie
+    backup/<horodatage>/              fichiers remplacés, 3 dernières exécutions conservées
+~/.claude/ctxguard-thresholds.json    partagé avec context-guard : reste à la racine
+```
+
+Rien d'autre n'est écrit ailleurs : la racine de `~/.claude` appartient à
+Claude Code. Les versions précédentes posaient chacun de ces fichiers à plat à cette
+racine, dont 238 caches par session ; `install.sh` migre une telle
+installation une fois, en déplaçant les fichiers plutôt qu'en les copiant.
+`STATUSLINE_STATE_DIR` déplace le répertoire d'état, `STATUSLINE_COST_LOG` le
+registre seul (ses caches par session le suivent dans un répertoire
+`sessions/` à côté).
 
 ## Fichiers (embarqués sous `assets/`)
 
 | Fichier | Rôle |
 |---|---|
 | `statusline-command.sh` | Point d'entrée du rendu — la racine de composition, appelée par Claude Code à chaque refresh. |
-| `statusline-lib/*.sh` | Les modules du moteur de rendu, un sujet par fichier. À installer à côté du moteur. |
-| `costs.sh` | CLI du registre de coûts sur `~/.claude/statusline-costs.jsonl` — source unique de chaque montant. |
+| `lib/*.sh` | Les modules du moteur de rendu, un sujet par fichier. À installer à côté du moteur. |
+| `costs.sh` | CLI du registre de coûts sur `state/costs.jsonl`, source unique de chaque montant. |
 | `pricing.json` | Prix par modèle utilisés par `costs.sh`. |
-| `statusline-transcript.py` | Télémétrie par session (tok/s, compactions, âge réponse, last_ts) — reverse-tail + scan incrémental, cache court (15 s, en arrière-plan). |
+| `transcript.py` | Télémétrie par session (tok/s, compactions, âge réponse, last_ts) : reverse-tail + scan incrémental, cache court (15 s, en arrière-plan). |
 | `statusline-budget.json` | Config **personnelle** : TTL cache, taille d'affichage. |
 | `ctxguard-thresholds.json` | Seuils de contexte par modèle — **partagés** avec le plugin context-guard (voir plus bas). |
 
-Le moteur résout `statusline-lib/` relativement à son propre chemin (surchargeable
+Le moteur résout `lib/` relativement à son propre chemin (surchargeable
 par `$STATUSLINE_LIB`) et s'arrête en nommant le fichier manquant si un module est
 absent, plutôt que d'afficher une statusline partielle.
 
@@ -71,6 +92,8 @@ absent, plutôt que d'afficher une statusline partielle.
 | `session_state.sh` | Registre de coûts, télémétrie transcript, tracker de sous-agents |
 | `layout.sh` | Sonde de largeur du terminal, preset de verbosité |
 | `render.sh` | Une fonction par ligne de statut |
+| `pricing.sh` | Moteur de tarification du registre (module de `costs.sh`) : `pricing.json`, les programmes jq, les caches par session |
+| `ledger_report.sh` | Les verbes `info`, `debug` et `init` du registre (module de `costs.sh`) |
 
 ## Segments
 

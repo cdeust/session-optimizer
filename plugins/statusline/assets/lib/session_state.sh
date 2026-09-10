@@ -4,7 +4,7 @@
 # analyses one file at a time and cannot follow that boundary. What actually
 # proves each name is live is tests/statusline (which sources the whole set and
 # asserts the exports exist) and the golden render diff, not this warning.
-# statusline-lib/session_state.sh — the session facts the statusLine JSON omits.
+# lib/session_state.sh: the session facts the statusLine JSON omits.
 #
 # Single responsibility: reading per-session state out of the local files that
 # the ledger and the hooks maintain. Everything in this module answers the same
@@ -15,7 +15,7 @@
 #
 # Depends on: platform.sh (file_mtime).
 
-# --- Costs: ONE ledger, ~/.claude/costs.sh over ~/.claude/statusline-costs.jsonl
+# --- Costs: ONE ledger, costs.sh (beside the renderer) over state/costs.jsonl
 # Single source of truth for every dollar figure on this statusline (session,
 # today, month). Replaces the former statusline-costs.py aggregate, which
 # summed every assistant line of every transcript and therefore over-counted
@@ -31,8 +31,17 @@
 # .cost.total_cost_usd, which covers the main thread only. Verified 2026-07-26:
 # all 121 local agent transcripts live under <session>/subagents/, including
 # the 42 whose cwd is a .claude/worktrees/agent-* path.
-COST_LEDGER_SH="${HOME}/.claude/costs.sh"
-COST_LOG="${STATUSLINE_COST_LOG:-${HOME}/.claude/statusline-costs.jsonl}"
+#
+# Locations (issue #33): the code is found beside the renderer ($STATUSLINE_HOME,
+# set by the composition root from its own path), the state under the install's
+# state/ directory. Both are defaulted here too so the module answers when
+# sourced alone. $STATUSLINE_COST_LOG still relocates the ledger on its own;
+# costs.sh keeps the per-session caches beside whatever ledger it is given.
+STATUSLINE_HOME="${STATUSLINE_HOME:-${HOME}/.claude/statusline}"
+STATUSLINE_DIR="${STATUSLINE_DIR:-${HOME}/.claude/statusline}"
+STATUSLINE_STATE_DIR="${STATUSLINE_STATE_DIR:-${STATUSLINE_DIR}/state}"
+COST_LEDGER_SH="${STATUSLINE_HOME}/costs.sh"
+COST_LOG="${STATUSLINE_COST_LOG:-${STATUSLINE_STATE_DIR}/costs.jsonl}"
 
 # read_cost_ledger — price this session and read back the ledger totals.
 # pre:  $1 the session id, $2 the raw statusLine JSON (fed to the ledger's
@@ -70,9 +79,9 @@ read_cost_ledger() {
 # the transcript tail + appended bytes, so it is cheap, and the time-relative
 # values (age, TTL) are recomputed live in bash from the cached last_ts so the
 # countdown stays second-accurate between refreshes. ---
-TXT_CACHE="${HOME}/.claude/.statusline-transcript-cache.json"
-TXT_SCRIPT="${HOME}/.claude/statusline-transcript.py"
-TXT_LOCK="${HOME}/.claude/.statusline-transcript.lock"
+TXT_CACHE="${STATUSLINE_STATE_DIR}/transcript-cache.json"
+TXT_SCRIPT="${STATUSLINE_HOME}/transcript.py"
+TXT_LOCK="${STATUSLINE_STATE_DIR}/transcript.lock"
 TXT_TTL=15            # refresh telemetry at most ~once per refresh-and-a-half
 TXT_LOCK_TTL=60       # a scan that died mid-flight cannot block the next one
                       # for longer than this
@@ -95,7 +104,8 @@ read_transcript_telemetry() {
       txt_lock_age=99999
       [ -f "$TXT_LOCK" ] && txt_lock_age=$(( now_epoch - $(file_mtime "$TXT_LOCK") ))
       if [ "$txt_lock_age" -ge "$TXT_LOCK_TTL" ]; then
-        ( touch "$TXT_LOCK"; python3 "$TXT_SCRIPT" "$transcript_path" >/dev/null 2>&1; rm -f "$TXT_LOCK" ) &
+        ( mkdir -p "$STATUSLINE_STATE_DIR" 2>/dev/null; touch "$TXT_LOCK"
+          python3 "$TXT_SCRIPT" "$transcript_path" >/dev/null 2>&1; rm -f "$TXT_LOCK" ) &
       fi
     fi
   fi

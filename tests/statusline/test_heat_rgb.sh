@@ -13,10 +13,10 @@ set -uo pipefail
 SCRIPT_UNDER_TEST="${SCRIPT_UNDER_TEST:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/plugins/statusline/assets/statusline-command.sh}"
 
 # The renderer is a composition root plus a directory of modules (heat_rgb and
-# make_bar live in statusline-lib/palette.sh, token_color in severity.sh). A
+# make_bar live in lib/palette.sh, token_color in severity.sh). A
 # static check that read only the main script would pass vacuously, so the
 # checks below sweep the whole source set.
-LIB_UNDER_TEST="${LIB_UNDER_TEST:-$(dirname "$SCRIPT_UNDER_TEST")/statusline-lib}"
+LIB_UNDER_TEST="${LIB_UNDER_TEST:-$(dirname "$SCRIPT_UNDER_TEST")/lib}"
 SOURCES_UNDER_TEST=("$SCRIPT_UNDER_TEST")
 for _f in "$LIB_UNDER_TEST"/*.sh; do
   [ -r "$_f" ] && SOURCES_UNDER_TEST+=("$_f")

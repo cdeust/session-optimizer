@@ -4,7 +4,7 @@
 # globals are assigned in sibling modules, which shellcheck does not follow, so
 # it reads every one of them as unassigned. Each function's `reads:` line is the
 # contract; the golden render diff is what enforces it.
-# statusline-lib/render.sh — one function per status line.
+# lib/render.sh: one function per status line.
 #
 # Single responsibility: composing the collected facts into text. Changes when
 # what is displayed, or in what order, changes. Nothing here reads a file, runs
@@ -96,85 +96,102 @@ render_git() {
 }
 
 # render_session — context bar, tokens, cost, duration, rate limits, churn,
-# subagents.
+# subagents. One helper per segment; this function only joins what they print,
+# separated by SEP, skipping the empty ones.
 # reads: used_pct in_tokens CTX_W RANK SAVE_TOKENS cost_session cost dur_ms
 #        rl_5h rl_7d rl_5h_at rl_7d_at now_epoch adds dels sub_count sub_tokens
 render_session() {
-  local line="" tok cc pct_int bar cost_fmt dur_s mins secs
-  local rl_seg v vrank vprank vratio sub_seg
+  local line seg
+  line=$(_session_context)
+  for seg in "$(_session_spend)" "$(_session_elapsed)" "$(_session_quota_inline)" \
+             "$(_session_edits)" "$(_session_subagents)"; do
+    [ -n "$seg" ] && line="${line:+$line ${SEP} }${seg}"
+  done
+  printf '%s' "$line"
+}
 
-  if [ -n "$used_pct" ] || [ -n "$in_tokens" ]; then
-    # color by absolute token count against the save threshold (works for 1M window)
-    tok="${in_tokens:-0}"
-    cc=$(token_color "$tok")
-
-    if [ -n "$used_pct" ]; then
-      pct_int=$(LC_NUMERIC=C awk "BEGIN{printf \"%.0f\",$used_pct}")
-      bar=$(make_bar "$pct_int" "$CTX_W")
-      line="${LABEL}context ${RESET}${bar} ${cc}${pct_int}%${RESET}"
-    fi
-
-    if [ -n "$in_tokens" ] && [ "$RANK" -ge 1 ]; then
-      line="${line:+$line }${cc}$(fmt_tokens "$in_tokens") tokens${RESET}"
-      # explicit checkpoint hint once past the save threshold
-      [ "$in_tokens" -ge "$SAVE_TOKENS" ] && line="${line} ${RED}save and recall now${RESET}"
-    fi
+# _session_context: the heat-track bar and the token count, coloured by the
+# absolute token count against the save threshold (works for a 1M window).
+_session_context() {
+  local line="" tok cc pct_int bar
+  { [ -n "$used_pct" ] || [ -n "$in_tokens" ]; } || return 0
+  tok="${in_tokens:-0}"
+  cc=$(token_color "$tok")
+  if [ -n "$used_pct" ]; then
+    pct_int=$(LC_NUMERIC=C awk "BEGIN{printf \"%.0f\",$used_pct}")
+    bar=$(make_bar "$pct_int" "$CTX_W")
+    line="${LABEL}context ${RESET}${bar} ${cc}${pct_int}%${RESET}"
   fi
-
-  # Session spend. Prefers the ledger row (main thread + every subagent, deduped
-  # and priced from this session's own transcript) over .cost.total_cost_usd,
-  # which counts the main thread only and additionally carries prior spend
-  # forward on a resumed session. Falls back to the harness figure, labelled
-  # "main" so an understated number is never shown as if it were the total.
-  if [ "$RANK" -ge 1 ]; then
-    if [ -n "$cost_session" ]; then
-      cost_fmt=$(LC_ALL=C awk -v v="${cost_session/,/.}" 'BEGIN{printf "%.2f", v+0}')
-      line="${line:+$line ${SEP} }${KEY}session ${SUBTEXT}${DOLLAR}${cost_fmt}${RESET}"
-    elif [ -n "$cost" ]; then
-      cost_fmt=$(LC_ALL=C awk -v v="${cost/,/.}" 'BEGIN{printf "%.2f", v+0}')
-      line="${line:+$line ${SEP} }${KEY}session main ${SUBTEXT}${DOLLAR}${cost_fmt}${RESET}"
-    fi
-  fi
-
-  if [ -n "$dur_ms" ] && [ "$RANK" -ge 2 ]; then
-    dur_s=$((dur_ms / 1000)); mins=$((dur_s / 60)); secs=$((dur_s % 60))
-    line="${line:+$line ${SEP} }${KEY}elapsed ${SUBTEXT}${mins}m${secs}s${RESET}"
-  fi
-
-  # Inline rate limits only at the m preset; l/xl render full quota bars below.
-  # Percentage and colour come from quota_reading, the same resolver the full
-  # quota lines use, so the compact and the expanded rendering of one window can
-  # never show different severities. No reset time here — at m the line is
-  # already carrying context, cost, elapsed and churn.
-  if { [ -n "$rl_5h" ] || [ -n "$rl_7d" ]; } && [ "$RANK" -eq 2 ]; then
-    rl_seg=""
-    if read -r v vrank vprank vratio < <(quota_reading "$rl_5h" "$rl_5h_at" "$RL_5H_WINDOW_S" "$now_epoch"); then
-      rl_seg="${KEY}quota 5h $(rank_color "$vrank")${v}%${RESET}"
-      [ -n "$vratio" ] && rl_seg="${rl_seg} ${KEY}pace $(rank_color "$vprank")$(fmt_pace "$vratio")${RESET}"
-    fi
-    if read -r v vrank vprank vratio < <(quota_reading "$rl_7d" "$rl_7d_at" "$RL_7D_WINDOW_S" "$now_epoch"); then
-      rl_seg="${rl_seg:+$rl_seg ${SEP} }${KEY}quota 7d $(rank_color "$vrank")${v}%${RESET}"
-      [ -n "$vratio" ] && rl_seg="${rl_seg} ${KEY}pace $(rank_color "$vprank")$(fmt_pace "$vratio")${RESET}"
-    fi
-    line="${line:+$line ${SEP} }${rl_seg}"
-  fi
-
-  if { [ "$adds" -gt 0 ] || [ "$dels" -gt 0 ]; } && [ "$RANK" -ge 2 ]; then
-    line="${line:+$line ${SEP} }${KEY}edits ${GREEN}+${adds}${OVERLAY}/${RED}-${dels}${RESET}"
-  fi
-
-  # Subagents: live count and token volume for THIS session, from the
-  # SubagentStop tracker. Their dollar cost is not repeated here — it is already
-  # inside the "session" figure above, which the ledger prices from the
-  # subagents/ subtree. Showing it twice would read as additive.
-  if [ -n "$sub_count" ]; then
-    sub_seg="${KEY}subagents ${SUBTEXT}${sub_count}${RESET}"
-    if [ -n "$sub_tokens" ] && [ "$sub_tokens" -gt 0 ] 2>/dev/null; then
-      sub_seg="${sub_seg} ${LGREY}$(fmt_tokens "$sub_tokens") tokens${RESET}"
-    fi
-    line="${line:+$line ${SEP} }${sub_seg}"
+  if [ -n "$in_tokens" ] && [ "$RANK" -ge 1 ]; then
+    line="${line:+$line }${cc}$(fmt_tokens "$in_tokens") tokens${RESET}"
+    # explicit checkpoint hint once past the save threshold
+    [ "$in_tokens" -ge "$SAVE_TOKENS" ] && line="${line} ${RED}save and recall now${RESET}"
   fi
   printf '%s' "$line"
+}
+
+# _session_spend: this session's dollars. Prefers the ledger row (main thread
+# + every subagent, deduped and priced from this session's own transcript) over
+# .cost.total_cost_usd, which counts the main thread only and additionally
+# carries prior spend forward on a resumed session. Falls back to the harness
+# figure, labelled "main" so an understated number is never shown as the total.
+_session_spend() {
+  local cost_fmt
+  [ "$RANK" -ge 1 ] || return 0
+  if [ -n "$cost_session" ]; then
+    cost_fmt=$(LC_ALL=C awk -v v="${cost_session/,/.}" 'BEGIN{printf "%.2f", v+0}')
+    printf '%s' "${KEY}session ${SUBTEXT}${DOLLAR}${cost_fmt}${RESET}"
+  elif [ -n "$cost" ]; then
+    cost_fmt=$(LC_ALL=C awk -v v="${cost/,/.}" 'BEGIN{printf "%.2f", v+0}')
+    printf '%s' "${KEY}session main ${SUBTEXT}${DOLLAR}${cost_fmt}${RESET}"
+  fi
+}
+
+# _session_elapsed: session duration, from the s preset up.
+_session_elapsed() {
+  local dur_s mins secs
+  { [ -n "$dur_ms" ] && [ "$RANK" -ge 2 ]; } || return 0
+  dur_s=$((dur_ms / 1000)); mins=$((dur_s / 60)); secs=$((dur_s % 60))
+  printf '%s' "${KEY}elapsed ${SUBTEXT}${mins}m${secs}s${RESET}"
+}
+
+# _session_quota_inline: rate limits inline, at the m preset only; l/xl render
+# full quota bars below. Percentage and colour come from quota_reading, the
+# same resolver the full quota lines use, so the compact and the expanded
+# rendering of one window can never show different severities. No reset time
+# here: at m the line already carries context, cost, elapsed and churn.
+_session_quota_inline() {
+  local rl_seg="" v vrank vprank vratio
+  { { [ -n "$rl_5h" ] || [ -n "$rl_7d" ]; } && [ "$RANK" -eq 2 ]; } || return 0
+  if read -r v vrank vprank vratio < <(quota_reading "$rl_5h" "$rl_5h_at" "$RL_5H_WINDOW_S" "$now_epoch"); then
+    rl_seg="${KEY}quota 5h $(rank_color "$vrank")${v}%${RESET}"
+    [ -n "$vratio" ] && rl_seg="${rl_seg} ${KEY}pace $(rank_color "$vprank")$(fmt_pace "$vratio")${RESET}"
+  fi
+  if read -r v vrank vprank vratio < <(quota_reading "$rl_7d" "$rl_7d_at" "$RL_7D_WINDOW_S" "$now_epoch"); then
+    rl_seg="${rl_seg:+$rl_seg ${SEP} }${KEY}quota 7d $(rank_color "$vrank")${v}%${RESET}"
+    [ -n "$vratio" ] && rl_seg="${rl_seg} ${KEY}pace $(rank_color "$vprank")$(fmt_pace "$vratio")${RESET}"
+  fi
+  printf '%s' "$rl_seg"
+}
+
+# _session_edits: lines added and removed, from the s preset up.
+_session_edits() {
+  { { [ "$adds" -gt 0 ] || [ "$dels" -gt 0 ]; } && [ "$RANK" -ge 2 ]; } || return 0
+  printf '%s' "${KEY}edits ${GREEN}+${adds}${OVERLAY}/${RED}-${dels}${RESET}"
+}
+
+# _session_subagents: live count and token volume for THIS session, from the
+# SubagentStop tracker. Their dollar cost is not repeated here: it is already
+# inside the "session" figure, which the ledger prices from the subagents/
+# subtree. Showing it twice would read as additive.
+_session_subagents() {
+  local sub_seg
+  [ -n "$sub_count" ] || return 0
+  sub_seg="${KEY}subagents ${SUBTEXT}${sub_count}${RESET}"
+  if [ -n "$sub_tokens" ] && [ "$sub_tokens" -gt 0 ] 2>/dev/null; then
+    sub_seg="${sub_seg} ${LGREY}$(fmt_tokens "$sub_tokens") tokens${RESET}"
+  fi
+  printf '%s' "$sub_seg"
 }
 
 # render_telemetry — turn throughput, last-response age, cache TTL, compactions.

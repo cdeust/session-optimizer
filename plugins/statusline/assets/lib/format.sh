@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# statusline-lib/format.sh — numbers and times as the reader sees them.
+# lib/format.sh: numbers and times as the reader sees them.
 #
 # Single responsibility: turning a raw quantity into the shortest string that
 # still reads unambiguously. Changes when a display format changes. Knows

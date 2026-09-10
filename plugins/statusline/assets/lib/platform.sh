@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# statusline-lib/platform.sh — the BSD/GNU spelling differences, in one place.
+# lib/platform.sh: the BSD/GNU spelling differences, in one place.
 #
 # Single responsibility: hide the two mutually exclusive spellings of the
 # coreutils this renderer needs. `stat` and `date` are the only two commands it

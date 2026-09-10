@@ -47,8 +47,9 @@ ruff check plugins tests
 bash tests/statusline/test_heat_rgb.sh
 bash tests/statusline/test_fit_and_pace.sh
 shellcheck plugins/statusline/assets/statusline-command.sh \
-  plugins/statusline/assets/statusline-lib/*.sh \
+  plugins/statusline/assets/lib/*.sh \
   plugins/statusline/assets/costs.sh \
+  plugins/statusline/install.sh \
   tests/statusline/*.sh
 ```
 

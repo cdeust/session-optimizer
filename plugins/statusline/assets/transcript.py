@@ -3,7 +3,7 @@
 
 Emits a small JSON cache the statusline reads cheaply each refresh. This is the
 slow path (transcript I/O) and is meant to run backgrounded on a short TTL,
-never inline with the 10s refresh — exactly like statusline-costs.py.
+never inline with the 10s refresh.
 
 What it derives, and why each is reliable:
 
@@ -23,15 +23,16 @@ What it derives, and why each is reliable:
 
   compactions    count of context-compaction boundaries in the transcript
                  (records carrying isCompactSummary / type "summary" /
-                 subtype "compact"). Computed incrementally: JSONL is append-only
-                 with whole lines, so a grown file is scanned only over its
-                 appended byte range [prev_size, size); an unchanged file reuses
-                 the cached count; a shrunk/rotated file is rescanned in full.
+                 subtype "compact"). Computed incrementally: JSONL is
+                 append-only and line-whole, so a grown file is scanned only
+                 over its appended byte range [prev_size, size); an unchanged
+                 file reuses the cached count; a shrunk/rotated file is
+                 rescanned in full.
 
 Non-fatal by construction: any parse/IO error prints "{}" and exits 0. The
 statusline treats an empty/missing cache as "no telemetry this round".
 
-Usage:  statusline-transcript.py <transcript_path>
+Usage:  transcript.py <transcript_path>
 """
 
 import json
@@ -39,7 +40,13 @@ import os
 import sys
 from datetime import datetime
 
-CACHE_PATH = os.path.expanduser("~/.claude/.statusline-transcript-cache.json")
+# The cache is runtime state, so it lives under the install's state/ directory
+# (issue #33). The renderer exports STATUSLINE_STATE_DIR before backgrounding
+# this script, which keeps an override on its side and this side identical.
+STATE_DIR = os.environ.get("STATUSLINE_STATE_DIR") or os.path.expanduser(
+    "~/.claude/statusline/state"
+)
+CACHE_PATH = os.path.join(STATE_DIR, "transcript-cache.json")
 
 # Tail window for the last-turn scan. The last turn's records live at the end of
 # the file; 512 KiB covers a very large multi-tool turn many times over while
@@ -90,17 +97,16 @@ def _is_compaction(line: str) -> bool:
 def _count_compactions(path: str, start: int) -> int:
     """Count compaction markers in path over [start, EOF). start must sit on a
     line boundary (it always does for append-only JSONL)."""
-    n = 0
     try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            if start > 0:
-                fh.seek(start)
-            for line in fh:
-                if _is_compaction(line):
-                    n += 1
+        fh = open(path, "r", encoding="utf-8", errors="replace")
     except OSError:
         return 0
-    return n
+    with fh:
+        try:
+            fh.seek(start)
+            return sum(1 for line in fh if _is_compaction(line))
+        except OSError:
+            return 0
 
 
 def _tail_records(path: str, size: int):
@@ -215,6 +221,7 @@ def main():
     result = build(path) if path else {}
     tmp = CACHE_PATH + ".tmp"
     try:
+        os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(result, fh)
         os.replace(tmp, CACHE_PATH)

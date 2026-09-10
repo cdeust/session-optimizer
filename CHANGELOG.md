@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Statusline only. No change to context-guard or refine-gate.
+
+### Changed
+
+- **Every file the statusline leaves on disk now lives under
+  `~/.claude/statusline/`** ([#33](https://github.com/cdeust/session-optimizer/issues/33)).
+  Measured 2026-09-10: 324 entries at the root of `~/.claude`, 238 of them the
+  ledger's per-session price caches (`statusline-costs.jsonl.main.<uuid>` and
+  `.sub.<uuid>`), the rest of the runtime spread flat beside them with the
+  auto-update hook's `*.bak.<timestamp>` copies. The code (`statusline-command.sh`,
+  `lib/`, `costs.sh`, `transcript.py`, `pricing.json`, `README.md`) sits at the
+  top of that directory next to the user's `statusline-budget.json`; everything
+  written at runtime goes under `state/`: the ledger as `costs.jsonl` with its
+  lock and stamp, the per-session caches as `sessions/<session>.main|.sub`
+  (still expired after 30 days), the telemetry cache as `transcript-cache.json`,
+  and backups as `backup/<timestamp>/` pruned to the newest three runs.
+  `STATUSLINE_COST_LOG` still relocates the ledger, and its caches now follow
+  it into a `sessions/` directory beside it; `STATUSLINE_STATE_DIR` and
+  `STATUSLINE_DIR` relocate the state and the install. The bundle mirrors the
+  installed layout: `assets/statusline-lib/` is now `assets/lib/` and
+  `assets/statusline-transcript.py` is `assets/transcript.py`.
+- **One deterministic installer, `install.sh`, replaces the prose-driven
+  install and update paths.** `install.sh install` (what the `/statusline`
+  skill runs) and `install.sh sync` (what the `SessionStart` hook runs) migrate
+  a flat install once by moving files, not copying them, so the old root files
+  disappear with their content and timestamps intact; place only the code
+  files that differ from the bundle; seed `statusline-budget.json` and
+  `ctxguard-thresholds.json` only when absent; point `settings.json`
+  `statusLine.command` at `~/.claude/statusline/statusline-command.sh` while
+  preserving `padding` and `refreshInterval`; and refuse to rewrite an
+  unparseable `settings.json`. `sync` is idempotent (an identical install is
+  left untouched and prints nothing) and does nothing where no statusline is
+  installed. `install.sh verify` replaces the skill's hand-run checks and
+  fails on any flat-layout file left at the root.
+- `ctxguard-thresholds.json` stays at `~/.claude/ctxguard-thresholds.json`:
+  the context-guard plugin's Stop hook reads that exact path, and a file with
+  two readers lives where both find it.
+- `costs.sh init` writes its ledger backup under `backup/` beside the ledger
+  instead of a `*.bak.*` file next to it; `costs.sh debug` reports the cache
+  directory and how many per-session caches it holds.
+
 ## [2.2.1] - 2026-08-10
 
 Statusline only. No change to context-guard or refine-gate.

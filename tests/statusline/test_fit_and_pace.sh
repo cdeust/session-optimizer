@@ -10,7 +10,7 @@
 # run_test (setup/teardown, trap EXIT), execution order is randomized on every
 # run, and all fixture data is synthetic (no production data, no PII).
 #
-# The functions under test live in statusline-lib/ and are loaded by the main
+# The functions under test live in lib/ and are loaded by the main
 # script above its STATUSLINE_SOURCE_ONLY guard, so sourcing that one script
 # loads every module without reading stdin or rendering.
 set -uo pipefail
@@ -21,7 +21,7 @@ SCRIPT_UNDER_TEST="${SCRIPT_UNDER_TEST:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../
 # are the ones violating, so every static test below sweeps the WHOLE source
 # set. Resolved from the script under test, so pointing SCRIPT_UNDER_TEST at an
 # installed copy checks that copy's own modules.
-LIB_UNDER_TEST="${LIB_UNDER_TEST:-$(dirname "$SCRIPT_UNDER_TEST")/statusline-lib}"
+LIB_UNDER_TEST="${LIB_UNDER_TEST:-$(dirname "$SCRIPT_UNDER_TEST")/lib}"
 SOURCES_UNDER_TEST=("$SCRIPT_UNDER_TEST")
 for _f in "$LIB_UNDER_TEST"/*.sh; do
   [ -r "$_f" ] && SOURCES_UNDER_TEST+=("$_f")
