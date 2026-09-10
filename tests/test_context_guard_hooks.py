@@ -162,8 +162,14 @@ def test_has_activity_since_and_line_has_tool_use(tmp_path):
     assert guard._has_activity_since(str(with_tool), offset_after_tool_use) is False
 
 
-def _run_guard_main(monkeypatch, payload, *, ctx=(190_000, "opus"), prev="none",
-                     scoped=False, has_activity=True):
+def _run_guard_main(monkeypatch, payload, **session):
+    """Run guard.main() on payload against a faked session: ctx (tokens, model),
+    prev (last recorded level), scoped (memory tool present), has_activity."""
+    ctx = session.pop("ctx", (190_000, "opus"))
+    prev = session.pop("prev", "none")
+    scoped = session.pop("scoped", False)
+    has_activity = session.pop("has_activity", True)
+    assert not session, f"unknown session options: {sorted(session)}"
     stdin = io.StringIO(payload if isinstance(payload, str) else json.dumps(payload))
     stdout = io.StringIO()
     monkeypatch.setattr(guard.sys, "stdin", stdin)
@@ -205,7 +211,9 @@ def test_guard_main_distrusts_a_stale_offset_from_a_different_transcript(tmp_pat
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setattr(guard, "STATE_DIR", str(tmp_path))
     tool_use_line = json.dumps({"message": {"content": [{"type": "tool_use", "name": "Read"}]}})
-    usage_line = lambda ctx: json.dumps({"message": {"model": "opus", "usage": {"input_tokens": ctx}}})
+
+    def usage_line(ctx):
+        return json.dumps({"message": {"model": "opus", "usage": {"input_tokens": ctx}}})
 
     transcript_a = tmp_path / "a.jsonl"
     transcript_a.write_text(usage_line(185_000) + "\n" + tool_use_line + "\n")
