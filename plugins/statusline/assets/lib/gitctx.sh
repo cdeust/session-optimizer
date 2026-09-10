@@ -4,7 +4,7 @@
 # analyses one file at a time and cannot follow that boundary. What actually
 # proves each name is live is tests/statusline (which sources the whole set and
 # asserts the exports exist) and the golden render diff, not this warning.
-# statusline-lib/gitctx.sh — the repository facts the git line shows.
+# lib/gitctx.sh: the repository facts the git line shows.
 #
 # Single responsibility: asking git where we are. Changes when the git facts on
 # display change. Every call is read-only and bounded (one symbolic-ref, one

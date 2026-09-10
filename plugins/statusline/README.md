@@ -18,42 +18,63 @@ Status is carried by colour and number only.
 /plugin install statusline@session-optimizer-marketplace
 ```
 
-Then ask Claude to **"install the statusline"** — the bundled `statusline`
-skill copies the assets into `~/.claude/` and wires `statusLine` in
-`~/.claude/settings.json` (backups included, config files never
-overwritten). Restart Claude Code to activate. Requires `jq` and `python3`.
+Then ask Claude to **"install the statusline"**: the bundled `statusline`
+skill runs `install.sh install`, which places everything under
+`~/.claude/statusline/` and wires `statusLine` in `~/.claude/settings.json`
+(config files never overwritten). Restart Claude Code to activate. Requires
+`jq` and `python3`.
 
-A `SessionStart` hook keeps the code assets current after `plugin update`;
-your `statusline-budget.json` and `ctxguard-thresholds.json` are never
-touched automatically.
+A `SessionStart` hook runs the same script in `sync` mode after
+`plugin update`: idempotent, prints only what it changed, and never touches
+`statusline-budget.json` or `ctxguard-thresholds.json`.
 
 <details>
 <summary>Manual install (without the plugin system)</summary>
 
-1. Copy everything in `assets/` into `~/.claude/` — including the whole
-   `statusline-lib/` directory, which must sit next to the renderer — then
-   `chmod +x ~/.claude/statusline-command.sh ~/.claude/costs.sh`.
-2. Declare the statusline in `~/.claude/settings.json`:
-   ```json
-   { "statusLine": { "type": "command", "command": "bash ~/.claude/statusline-command.sh", "padding": 1, "refreshInterval": 10 } }
-   ```
-3. Adapt `statusline-budget.json` to your own preferences.
+1. From a checkout of this repository: `bash plugins/statusline/install.sh install`.
+   It is the same script the skill and the hook use; `HOME` decides where
+   `~/.claude` is, `STATUSLINE_DIR` overrides the install directory.
+2. Adapt `~/.claude/statusline/statusline-budget.json` to your own preferences.
 
 </details>
+
+## What ends up on disk
+
+```
+~/.claude/statusline/                 the whole install, one directory
+  statusline-command.sh  lib/         renderer and its modules
+  costs.sh  pricing.json              cost ledger CLI and the prices it uses
+  transcript.py                       per-session telemetry (backgrounded, 15 s TTL)
+  README.md                           this file
+  statusline-budget.json              personal config: seeded once, never overwritten
+  state/                              everything written at runtime
+    costs.jsonl                       the ledger (+ .lock, .cleanup-stamp while running)
+    sessions/<session>.main|.sub      per-session price caches, 30-day retention
+    transcript-cache.json             telemetry cache
+    backup/<timestamp>/               superseded files, newest 3 runs kept
+~/.claude/ctxguard-thresholds.json    shared with context-guard: stays at the root
+```
+
+Nothing else of the statusline is written anywhere: the root of `~/.claude`
+is Claude Code's. Earlier releases put every one of those files flat at that root,
+238 per-session caches among them; `install.sh` migrates such an install once,
+moving files rather than copying them. `STATUSLINE_STATE_DIR` relocates the
+state directory, `STATUSLINE_COST_LOG` the ledger alone (its per-session
+caches follow it into a `sessions/` directory beside it).
 
 ## Files (bundled under `assets/`)
 
 | File | Role |
 |---|---|
 | `statusline-command.sh` | Renderer entry point — the composition root, called by Claude Code on every refresh. |
-| `statusline-lib/*.sh` | The renderer's modules, one concern per file. Must be installed next to the renderer. |
-| `costs.sh` | Cost ledger CLI over `~/.claude/statusline-costs.jsonl` — the single source of every dollar figure. |
+| `lib/*.sh` | The renderer's modules, one concern per file. Must be installed next to the renderer. |
+| `costs.sh` | Cost ledger CLI over `state/costs.jsonl`, the single source of every dollar figure. |
 | `pricing.json` | Per-model token prices `costs.sh` prices with. |
-| `statusline-transcript.py` | Per-session telemetry (tok/s, compactions, response age, last_ts) — reverse-tail + incremental scan, short cache (15 s, in the background). |
+| `transcript.py` | Per-session telemetry (tok/s, compactions, response age, last_ts): reverse-tail + incremental scan, short cache (15 s, in the background). |
 | `statusline-budget.json` | **Personal** config: cache TTL, display size. |
 | `ctxguard-thresholds.json` | Per-model context thresholds — **shared** with the context-guard plugin (see below). |
 
-The renderer resolves `statusline-lib/` relative to its own path (override with
+The renderer resolves `lib/` relative to its own path (override with
 `$STATUSLINE_LIB`) and exits with a message naming the missing file if a module
 is absent, rather than rendering a partial statusline.
 
@@ -69,6 +90,8 @@ is absent, rather than rendering a partial statusline.
 | `session_state.sh` | Cost ledger, transcript telemetry, subagent tracker |
 | `layout.sh` | Terminal width probe, verbosity preset |
 | `render.sh` | One function per status line |
+| `pricing.sh` | The ledger's pricing engine (`costs.sh` module): `pricing.json`, the jq programs, the per-session caches |
+| `ledger_report.sh` | The ledger's `info`, `debug` and `init` verbs (`costs.sh` module) |
 
 ## Segments
 
@@ -144,7 +167,9 @@ The context bar's green → yellow → red scale is driven by
 [context-guard](../context-guard) plugin's Stop hook. One file, two
 consumers: the statusline is the passive visual warning, the Stop guard the
 active enforcement, and editing the file moves both at once so they stay on
-par by construction. The install skill seeds the file if absent and never
+par by construction. That is why it is the one statusline file that stays at
+the root of `~/.claude` rather than under `~/.claude/statusline/`: context-guard
+reads that exact path. The installer seeds the file if absent and never
 overwrites an existing copy.
 
 ## Display sizes (presets)

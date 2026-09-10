@@ -4,7 +4,7 @@
 # analyses one file at a time and cannot follow that boundary. What actually
 # proves each name is live is tests/statusline (which sources the whole set and
 # asserts the exports exist) and the golden render diff, not this warning.
-# statusline-lib/fit.sh — measuring and trimming a rendered line.
+# lib/fit.sh: measuring and trimming a rendered line.
 #
 # Single responsibility: how much terminal a rendered string occupies, and what
 # to drop when it occupies too much. This module changes when the trimming

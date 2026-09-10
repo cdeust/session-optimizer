@@ -9,15 +9,17 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "plugins" / "statusline" / "assets" / "statusline-transcript.py"
+SCRIPT = ROOT / "plugins" / "statusline" / "assets" / "transcript.py"
 SPEC = importlib.util.spec_from_file_location("session_optimizer_statusline_transcript", SCRIPT)
 telemetry = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(telemetry)
 
 
-def _record(kind, timestamp, *, output=0, model="opus", **extra):
-    record = {"type": kind, "timestamp": timestamp, **extra}
+def _record(kind, timestamp, **fields):
+    output = fields.pop("output", 0)
+    model = fields.pop("model", "opus")
+    record = {"type": kind, "timestamp": timestamp, **fields}
     if kind == "assistant":
         record["message"] = {
             "role": "assistant", "model": model,

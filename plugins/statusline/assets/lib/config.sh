@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# statusline-lib/config.sh — the two JSON files this renderer reads.
+# lib/config.sh: the two JSON files this renderer reads.
 #
 # Single responsibility: knowing the on-disk config schema. Changes when a
 # config file's shape changes. Each reader validates what it read and falls back
@@ -10,9 +10,15 @@
 
 # Single source of truth for the checkpoint thresholds, shared with the
 # stop-context-guard.py hook so passive display and active enforcement cannot
-# drift.
+# drift. It is the ONE statusline file that stays at the root of ~/.claude:
+# plugins/context-guard/hooks/stop-context-guard.py reads this exact path, and
+# moving it under the statusline's directory would split the two readers.
 CTXGUARD_CONFIG="${HOME}/.claude/ctxguard-thresholds.json"
-BUDGET_CONFIG="${HOME}/.claude/statusline-budget.json"
+# The user's own settings live in the install directory, beside the code
+# (issue #33). Defaulted here as well as in the composition root so the module
+# still answers when sourced on its own.
+STATUSLINE_DIR="${STATUSLINE_DIR:-${HOME}/.claude/statusline}"
+BUDGET_CONFIG="${STATUSLINE_DIR}/statusline-budget.json"
 # The host's own settings file. Read for exactly one field — statusLine.padding
 # — because that padding is applied by the host AROUND this script's output and
 # therefore comes out of the width available to it (see fit.sh, fit_budget).

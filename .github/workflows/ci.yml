@@ -59,8 +59,9 @@ jobs:
       - name: Shellcheck statusline renderer, modules, ledger and tests
         run: |
           shellcheck plugins/statusline/assets/statusline-command.sh
-          shellcheck plugins/statusline/assets/statusline-lib/*.sh
+          shellcheck plugins/statusline/assets/lib/*.sh
           shellcheck plugins/statusline/assets/costs.sh
+          shellcheck plugins/statusline/install.sh
           shellcheck tools/*.sh
           # The suites are shell too, and a checker that skips them lets the
           # code that guards the renderer rot unwatched.

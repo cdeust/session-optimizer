@@ -4,7 +4,7 @@
 # analyses one file at a time and cannot follow that boundary. What actually
 # proves each name is live is tests/statusline (which sources the whole set and
 # asserts the exports exist) and the golden render diff, not this warning.
-# statusline-lib/layout.sh — how wide the terminal is and how much to show.
+# lib/layout.sh: how wide the terminal is and how much to show.
 #
 # Single responsibility: the coarse adjustment — how many LINES render and how
 # wide the bars are. (The fine one, how many SEGMENTS survive on each line, is

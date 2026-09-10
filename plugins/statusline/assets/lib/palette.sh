@@ -4,7 +4,7 @@
 # analyses one file at a time and cannot follow that boundary. What actually
 # proves each name is live is tests/statusline (which sources the whole set and
 # asserts the exports exist) and the golden render diff, not this warning.
-# statusline-lib/palette.sh — colour tokens and the heat-track bar.
+# lib/palette.sh: colour tokens and the heat-track bar.
 #
 # Single responsibility: what things look like. This module changes when the
 # design system changes, and for no other reason — it knows nothing about

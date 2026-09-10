@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # The facts extracted from the statusLine JSON below
-# are consumed by statusline-lib/render.sh, which shellcheck does not follow
+# are consumed by lib/render.sh, which shellcheck does not follow
 # across the source boundary; it therefore reads every one of them as unused.
 # The golden render diff and tests/statusline are what prove they are live.
 # Claude Code statusLine — zetetic partner view (persistent, multi-line)
@@ -8,7 +8,7 @@
 # This file is the composition root: it loads the modules, reads the statusLine
 # JSON, asks each collector for its facts, asks each renderer for its line, and
 # emits what fits. It holds no display logic and no thresholds of its own — see
-# statusline-lib/ for those, one concern per file:
+# lib/ for those, one concern per file:
 #
 #   platform.sh       BSD/GNU spelling differences (stat, date)
 #   palette.sh        colour tokens, the heat-track bar
@@ -20,6 +20,8 @@
 #   session_state.sh  cost ledger, transcript telemetry, subagent tracker
 #   layout.sh         terminal width probe, verbosity preset
 #   render.sh         one function per status line
+#   pricing.sh        costs.sh's pricing engine (not loaded here)
+#   ledger_report.sh  costs.sh's info/debug/init verbs (not loaded here)
 #
 # Every line opens with a word naming its concern, and every value is preceded
 # by the word for what it measures. No emoji, no pictographs, no glyph-encoded
@@ -49,18 +51,30 @@
 # reset. 1.0x projects landing exactly on the cap. The percentage carries the
 # worse of the absolute and pace readings; the pace figure carries its own.
 #
-# Every dollar figure on this statusline comes from ONE ledger,
-# ~/.claude/costs.sh over ~/.claude/statusline-costs.jsonl, and every one of
-# them includes subagent spend (Task, worktree-isolated, and workflow agents).
+# Every dollar figure on this statusline comes from ONE ledger, costs.sh (next
+# to this file) over $STATUSLINE_STATE_DIR/costs.jsonl, and every one of them
+# includes subagent spend (Task, worktree-isolated, and workflow agents).
+#
+# On-disk layout (issue #33): the install is ONE directory, ~/.claude/statusline/
+# by default. The code sits at its top (this file, lib/, costs.sh, transcript.py,
+# pricing.json) beside the user's statusline-budget.json, and everything written
+# at runtime goes under state/ (ledger, per-session price caches, transcript
+# cache, backups). The only file kept at the root of ~/.claude is
+# ctxguard-thresholds.json, because the context-guard plugin reads it there.
 #
 # Context/token colour tracks the per-model checkpoint thresholds shared with
 # stop-context-guard.py via ~/.claude/ctxguard-thresholds.json (see config.sh):
 # green below the warn threshold, yellow at it, red at the save threshold.
 
-# --- Modules ---------------------------------------------------------------
-# Resolved relative to this file, so the renderer works from a plugin directory,
-# a checkout or ~/.claude without a hardcoded path. $STATUSLINE_LIB overrides it
-# (test harnesses pointing at a working copy).
+# --- Locations -------------------------------------------------------------
+# Code is resolved relative to this file, so the renderer works from a plugin
+# directory, a checkout or ~/.claude/statusline without a hardcoded path.
+# $STATUSLINE_LIB overrides the module directory (test harnesses pointing at a
+# working copy). State is NOT relative to the code: a checkout must never write
+# its ledger into the repository, so state defaults to the user's install
+# directory and follows $STATUSLINE_DIR / $STATUSLINE_STATE_DIR. The state dir
+# is exported so costs.sh and transcript.py, run as subprocesses below, write
+# to the same place this renderer reads from.
 # Load order is dependency order: platform and palette own no dependencies,
 # everything else builds on them.
 # Numeric formatting must be locale-independent. Under a comma-decimal locale
@@ -73,7 +87,13 @@
 unset LC_ALL
 export LC_NUMERIC=C
 
-STATUSLINE_LIB="${STATUSLINE_LIB:-$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/statusline-lib}"
+STATUSLINE_HOME="${STATUSLINE_HOME:-$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)}"
+STATUSLINE_LIB="${STATUSLINE_LIB:-${STATUSLINE_HOME}/lib}"
+STATUSLINE_DIR="${STATUSLINE_DIR:-${HOME}/.claude/statusline}"
+STATUSLINE_STATE_DIR="${STATUSLINE_STATE_DIR:-${STATUSLINE_DIR}/state}"
+export STATUSLINE_STATE_DIR
+
+# --- Modules ---------------------------------------------------------------
 for _mod in platform palette fit severity format config gitctx session_state layout render; do
   if [ -r "${STATUSLINE_LIB}/${_mod}.sh" ]; then
     # shellcheck source=/dev/null

@@ -71,7 +71,7 @@ These plugins make that discipline *visible* (statusline), *automatic*
 plugins/
   context-guard/                  # Stop guard + memory-writer agent + SubagentStop tracker
   refine-gate/                    # UserPromptSubmit gate + /refine skill
-  statusline/                     # renderer + helpers under assets/, install skill, auto-update hook
+  statusline/                     # renderer + helpers under assets/, install.sh (skill + SessionStart sync)
 tests/                            # the three suites, run from the repo root
 ```
 

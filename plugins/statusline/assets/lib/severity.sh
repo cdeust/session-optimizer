@@ -4,7 +4,7 @@
 # analyses one file at a time and cannot follow that boundary. What actually
 # proves each name is live is tests/statusline (which sources the whole set and
 # asserts the exports exist) and the golden render diff, not this warning.
-# statusline-lib/severity.sh — the one severity scale and its thresholds.
+# lib/severity.sh: the one severity scale and its thresholds.
 #
 # Single responsibility: deciding how alarming a number is. Every
 # threshold-driven colour on this statusline resolves through this module, so
