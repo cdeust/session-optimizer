@@ -68,8 +68,7 @@ def _load_state(session_id):
 
 
 def _agent_entry(rec):
-    cache = (rec.usage.cache_write_5m + rec.usage.cache_write_1h
-             + rec.usage.cache_read)
+    cache = rec.usage.cache_write_5m + rec.usage.cache_write_1h + rec.usage.cache_read
     return {
         "agent_type": rec.agent_type,
         "description": rec.description,
@@ -91,9 +90,14 @@ def _recompute_totals(state):
     agents = state.get("agents", {})
     totals = {
         "count": len(agents),
-        "input_tokens": 0, "output_tokens": 0, "cache_tokens": 0,
-        "tool_uses": 0, "cost_usd": 0.0, "context_tokens": 0,
-        "web_search_requests": 0, "web_fetch_requests": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_tokens": 0,
+        "tool_uses": 0,
+        "cost_usd": 0.0,
+        "context_tokens": 0,
+        "web_search_requests": 0,
+        "web_fetch_requests": 0,
     }
     for entry in agents.values():
         totals["input_tokens"] += entry.get("input_tokens", 0)

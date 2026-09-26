@@ -27,12 +27,12 @@ def render(ev, git_info: GitInfo, sub_state: str) -> str:
     """Render the checkpoint-stub markdown body for one fire event. Pure."""
     iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     return f"""---
-description: "Auto-checkpoint ({ev.level}) at {ev.ctx:,} tokens — session {ev.session_id[:8]} on {git_info.branch or 'unknown branch'}"
+description: "Auto-checkpoint ({ev.level}) at {ev.ctx:,} tokens — session {ev.session_id[:8]} on {git_info.branch or "unknown branch"}"
 ---
 ## Auto-checkpoint stub ({ev.level}) — {iso}
 
 > Mechanical state captured for free by stop-context-guard at {ev.ctx:,} context
-> tokens (model: {ev.model_id or 'unknown'}). The semantic fields below follow the
+> tokens (model: {ev.model_id or "unknown"}). The semantic fields below follow the
 > summary schema. Budget: <=500 words total across all sections; clip any
 > quoted tool output to 2,000 chars.
 
@@ -49,9 +49,9 @@ replace with the load-bearing files and add `path:start-end` line ranges)
 
 ### Current state
 - session_id: {ev.session_id}
-- model: {ev.model_id or 'unknown'} · context tokens at trigger: {ev.ctx:,}
+- model: {ev.model_id or "unknown"} · context tokens at trigger: {ev.ctx:,}
 - working dir: {ev.cwd}
-- branch: {git_info.branch or '(unknown)'} · last commit: {git_info.last_commit or '(none)'}
+- branch: {git_info.branch or "(unknown)"} · last commit: {git_info.last_commit or "(none)"}
 {sub_state}<to be filled: one paragraph — where the work stands right now>
 
 ### Next steps

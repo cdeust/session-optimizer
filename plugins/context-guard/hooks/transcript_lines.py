@@ -48,6 +48,5 @@ def line_has_tool_use(line: str) -> bool:
     if not isinstance(content, list):
         return False
     return any(
-        isinstance(block, dict) and block.get("type") == "tool_use"
-        for block in content
+        isinstance(block, dict) and block.get("type") == "tool_use" for block in content
     )

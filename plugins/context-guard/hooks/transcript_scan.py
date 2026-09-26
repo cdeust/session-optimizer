@@ -70,7 +70,7 @@ def _split_head(buf: str, at_file_start: bool):
     nl = buf.find("\n")
     if nl == -1:
         return buf, []
-    return buf[:nl], buf[nl + 1:].split("\n")
+    return buf[:nl], buf[nl + 1 :].split("\n")
 
 
 def iter_lines_backward(fh, size: int, result: ScanResult, budget: ScanBudget):

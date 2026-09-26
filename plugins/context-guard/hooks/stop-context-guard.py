@@ -73,11 +73,11 @@ CONFIG_PATH = os.path.join(
 )
 FALLBACK_THRESHOLDS = {
     "models": [
-        {"match": "fable",  "warn": 120_000, "hard": 160_000},
+        {"match": "fable", "warn": 120_000, "hard": 160_000},
         {"match": "mythos", "warn": 120_000, "hard": 160_000},
-        {"match": "haiku",  "warn": 120_000, "hard": 170_000},
+        {"match": "haiku", "warn": 120_000, "hard": 170_000},
         {"match": "sonnet", "warn": 180_000, "hard": 200_000},
-        {"match": "opus",   "warn": 180_000, "hard": 200_000},
+        {"match": "opus", "warn": 180_000, "hard": 200_000},
     ],
     "default": {"warn": 180_000, "hard": 200_000},
 }
@@ -91,7 +91,9 @@ def _thresholds(model_id: str):
     Postcondition: warn < hard, both positive ints.
     """
     table = thresholds_mod.load_table(CONFIG_PATH, FALLBACK_THRESHOLDS)
-    entry = thresholds_mod.matching_entry(table, model_id, FALLBACK_THRESHOLDS["default"])
+    entry = thresholds_mod.matching_entry(
+        table, model_id, FALLBACK_THRESHOLDS["default"]
+    )
     fallback = FALLBACK_THRESHOLDS["default"]
     try:
         warn, hard = int(entry["warn"]), int(entry["hard"])
@@ -112,7 +114,7 @@ LEVEL_ORDER = {"none": 0, "warn": 1, "hard": 2}
 # last usage record 7,591 bytes from EOF; usage lines min=1,016/median=1,729/
 # max=32,769 bytes -- one 64KiB chunk covers both ~2-8.6x over, so one chunk
 # suffices in practice. TAIL_MAX_BYTES is a hard safety bound, not a tuning knob.
-TAIL_CHUNK = 64 * 1024          # 65536 bytes
+TAIL_CHUNK = 64 * 1024  # 65536 bytes
 TAIL_MAX_BYTES = 4 * 1024 * 1024  # cap total bytes scanned at 4 MiB
 
 
@@ -161,7 +163,8 @@ def _read_last_usage(transcript_path: str):
     try:
         with open(transcript_path, "rb") as fh:
             lines = transcript_scan.iter_lines_backward(
-                fh, size, transcript_scan.ScanResult(), _scan_budget())
+                fh, size, transcript_scan.ScanResult(), _scan_budget()
+            )
             hit = transcript_scan.first_match(lines, _usage_from_line)
     except (OSError, TypeError, ValueError):
         return None, None
@@ -185,9 +188,11 @@ def _subagent_summary(session_id: str):
     except (OSError, json.JSONDecodeError, ValueError):
         return 0, 0, 0.0
     count = int(totals.get("count", 0) or 0)
-    tokens = (int(totals.get("input_tokens", 0) or 0)
-              + int(totals.get("output_tokens", 0) or 0)
-              + int(totals.get("cache_tokens", 0) or 0))
+    tokens = (
+        int(totals.get("input_tokens", 0) or 0)
+        + int(totals.get("output_tokens", 0) or 0)
+        + int(totals.get("cache_tokens", 0) or 0)
+    )
     cost = float(totals.get("cost_usd", 0.0) or 0.0)
     return count, tokens, cost
 
@@ -197,9 +202,11 @@ def _subagent_line(session_id: str) -> str:
     count, tokens, cost = _subagent_summary(session_id)
     if count <= 0:
         return ""
-    return (f"\nSubagent spend this session (not in the main-thread context "
-            f"measure above): {count} runs, ~{tokens:,} billed tokens, "
-            f"~${cost:.2f}.")
+    return (
+        f"\nSubagent spend this session (not in the main-thread context "
+        f"measure above): {count} runs, ~{tokens:,} billed tokens, "
+        f"~${cost:.2f}."
+    )
 
 
 def _normalize_since_offset(since_offset: int, size: int) -> int:
@@ -244,7 +251,8 @@ def _has_activity_since(transcript_path: str, since_offset: int) -> bool:
             rng = transcript_scan.ByteRange(since_offset, size)
             lines = transcript_scan.iter_lines_forward(fh, rng, result, _scan_budget())
             found = transcript_scan.first_match(
-                lines, lambda line: True if _line_has_tool_use(line) else None)
+                lines, lambda line: True if _line_has_tool_use(line) else None
+            )
     except (OSError, TypeError, ValueError):
         return True
 
@@ -264,7 +272,10 @@ def _git(cwd: str, *args: str) -> str:
     try:
         out = subprocess.run(
             ["git", "-C", cwd, "-c", "core.useBuiltinFSMonitor=false", *args],
-            capture_output=True, text=True, timeout=3, check=False,
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
         )
         return out.stdout.strip()
     except OSError:
@@ -291,8 +302,10 @@ def _sub_state_line(session_id: str) -> str:
     sub_count, sub_tokens, sub_cost = _subagent_summary(session_id)
     if sub_count <= 0:
         return ""
-    return (f"- subagent spend: {sub_count} runs · ~{sub_tokens:,} billed tokens · "
-            f"~${sub_cost:.2f} (separate from the context tokens above)\n")
+    return (
+        f"- subagent spend: {sub_count} runs · ~{sub_tokens:,} billed tokens · "
+        f"~${sub_cost:.2f} (separate from the context tokens above)\n"
+    )
 
 
 def _write_stub(ev: FireEvent) -> str:
@@ -308,7 +321,8 @@ def _write_stub(ev: FireEvent) -> str:
         return ""
 
     git_info = checkpoint_stub.GitInfo(
-        branch=_git(ev.cwd, "symbolic-ref", "--short", "HEAD") or _git(ev.cwd, "rev-parse", "--short", "HEAD"),
+        branch=_git(ev.cwd, "symbolic-ref", "--short", "HEAD")
+        or _git(ev.cwd, "rev-parse", "--short", "HEAD"),
         last_commit=_git(ev.cwd, "log", "-1", "--oneline"),
         modified=_git(ev.cwd, "status", "--porcelain"),
     )
@@ -434,10 +448,15 @@ def _checkpoint_reasons(cwd: str, warn: int, hard: int) -> CheckpointReasons:
     actually installed; everyone else gets the stub-file protocol, which
     references vanilla Claude Code tools only."""
     if checkpoint_protocol.detect_memory_tool(cwd) is not None:
-        return CheckpointReasons(warn, hard, checkpoint_protocol.warn_reason_scoped,
-                                  checkpoint_protocol.block_reason_scoped)
-    return CheckpointReasons(warn, hard, checkpoint_protocol.warn_reason,
-                              checkpoint_protocol.block_reason)
+        return CheckpointReasons(
+            warn,
+            hard,
+            checkpoint_protocol.warn_reason_scoped,
+            checkpoint_protocol.block_reason_scoped,
+        )
+    return CheckpointReasons(
+        warn, hard, checkpoint_protocol.warn_reason, checkpoint_protocol.block_reason
+    )
 
 
 def _fire_payload(ev: FireEvent, reasons: CheckpointReasons, sub_line: str) -> dict:
@@ -445,7 +464,8 @@ def _fire_payload(ev: FireEvent, reasons: CheckpointReasons, sub_line: str) -> d
     if ev.level == "hard":
         return {
             "decision": "block",
-            "reason": reasons.block_reason(ev.ctx, ev.stub_path, reasons.hard) + sub_line,
+            "reason": reasons.block_reason(ev.ctx, ev.stub_path, reasons.hard)
+            + sub_line,
             "systemMessage": (
                 f"[context-guard] {ev.ctx:,} tokens ≥ {reasons.hard:,} soft cap "
                 f"({ev.model_id or 'model'}) — forcing a checkpoint before the "
@@ -454,12 +474,14 @@ def _fire_payload(ev: FireEvent, reasons: CheckpointReasons, sub_line: str) -> d
         }
     return {
         "decision": "block",
-        "reason": reasons.warn_reason(ev.ctx, ev.stub_path, reasons.warn, reasons.hard) + sub_line,
+        "reason": reasons.warn_reason(ev.ctx, ev.stub_path, reasons.warn, reasons.hard)
+        + sub_line,
         "systemMessage": (
             f"[context-guard] {ev.ctx:,} tokens ≥ {reasons.warn:,} checkpoint threshold "
             f"({(ev.model_id or 'model')}) — spawning the memory-writer subagent to "
             f"persist the semantic checkpoint, then the session continues. "
-            f"Mechanical stub: {ev.stub_path or 'n/a'}. Hard stop at {reasons.hard:,}." + sub_line
+            f"Mechanical stub: {ev.stub_path or 'n/a'}. Hard stop at {reasons.hard:,}."
+            + sub_line
         ),
     }
 
