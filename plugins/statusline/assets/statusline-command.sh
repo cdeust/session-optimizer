@@ -17,7 +17,8 @@
 #   format.sh         numbers and times as the reader sees them
 #   config.sh         the two JSON config files
 #   gitctx.sh         the repository facts
-#   session_state.sh  cost ledger, transcript telemetry, subagent tracker
+#   session_state.sh  cost ledger, transcript telemetry, subagent tracker,
+#                     verbatim session snapshot for external readers
 #   layout.sh         terminal width probe, verbosity preset
 #   render.sh         one function per status line
 #   pricing.sh        costs.sh's pricing engine (not loaded here)
@@ -59,8 +60,10 @@
 # by default. The code sits at its top (this file, lib/, costs.sh, transcript.py,
 # pricing.json) beside the user's statusline-budget.json, and everything written
 # at runtime goes under state/ (ledger, per-session price caches, transcript
-# cache, backups). The only file kept at the root of ~/.claude is
-# ctxguard-thresholds.json, because the context-guard plugin reads it there.
+# cache, backups, and one verbatim snapshot of the statusLine JSON per session
+# — see write_session_snapshot in session_state.sh and README.md). The only
+# file kept at the root of ~/.claude is ctxguard-thresholds.json, because the
+# context-guard plugin reads it there.
 #
 # Context/token colour tracks the per-model checkpoint thresholds shared with
 # stop-context-guard.py via ~/.claude/ctxguard-thresholds.json (see config.sh):
@@ -117,7 +120,15 @@ done
 # values derived from it.
 [ "${STATUSLINE_SOURCE_ONLY:-0}" = "1" ] && return 0 2>/dev/null
 
-input=$(cat)
+# Plain `input=$(cat)` strips every trailing newline the host sent — command
+# substitution's documented behaviour — which would make the verbatim session
+# snapshot below (write_session_snapshot) a lie the moment the host's payload
+# ends in "\n". Appending a sentinel byte and stripping only it back off
+# preserves whatever trailing bytes stdin actually carried, empty input
+# included; jq and every other reader of $input tolerate the same trailing
+# whitespace they always could.
+input=$(cat; printf 'x')
+input="${input%x}"
 j() { echo "$input" | jq -r "$1"; }
 now_epoch=$(date +%s)
 
@@ -155,6 +166,7 @@ collect_git "$cwd"                       # -> git_* n*
 read_cost_ledger "$session_id" "$input"  # -> cost_session cost_today cost_month cost_avg_day
 read_transcript_telemetry "$transcript_path" "$now_epoch"   # -> txt_*
 read_subagent_totals "$session_id"       # -> sub_count sub_tokens
+write_session_snapshot "$session_id" "$input"   # state/sessions/<id>.snapshot.json
 
 COLS=$(probe_cols)
 FIT_W=$(fit_budget "$COLS" "$(read_statusline_padding)")

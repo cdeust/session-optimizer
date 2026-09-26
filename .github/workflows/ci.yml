@@ -66,6 +66,9 @@ jobs:
       - name: Statusline fitting, pace and module tests
         run: bash tests/statusline/test_fit_and_pace.sh
 
+      - name: Statusline session snapshot tests
+        run: bash tests/statusline/test_session_snapshot.sh
+
       - name: Shellcheck statusline renderer, modules, ledger and tests
         run: |
           shellcheck plugins/statusline/assets/statusline-command.sh

@@ -51,6 +51,9 @@ jamais `statusline-budget.json` ni `ctxguard-thresholds.json`.
   state/                              tout ce qui est écrit à l'exécution
     costs.jsonl                       le registre (+ .lock, .cleanup-stamp pendant l'écriture)
     sessions/<session>.main|.sub      caches de prix par session, rétention 30 jours
+    sessions/<session>.snapshot.json  le JSON stdin, tel quel ; écrit à chaque
+                                      rendu ; supprimé avec les autres
+                                      fichiers d'état de la session
     transcript-cache.json             cache de télémétrie
     backup/<horodatage>/              fichiers remplacés, 3 dernières exécutions conservées
 ~/.claude/ctxguard-thresholds.json    partagé avec context-guard : reste à la racine
@@ -63,6 +66,22 @@ installation une fois, en déplaçant les fichiers plutôt qu'en les copiant.
 `STATUSLINE_STATE_DIR` déplace le répertoire d'état, `STATUSLINE_COST_LOG` le
 registre seul (ses caches par session le suivent dans un répertoire
 `sessions/` à côté).
+
+## Instantané de session pour les lecteurs externes
+
+`state/sessions/<session_id>.snapshot.json` est le JSON statusLine exact reçu
+au dernier rendu, tel quel, sans reformulation ni sous-ensemble. Un lecteur
+extérieur à ce moteur de rendu (un plugin Stream Deck, un second tableau de
+bord) peut l'ouvrir directement et lire `context_window.used_percentage`,
+`rate_limits.five_hour`/`seven_day`, `cost.total_cost_usd`,
+`model.display_name` et tout ce que l'hôte envoie, sans rien redériver ni
+relancer ce script. Écrit à chaque rendu quand `session_id` est présent et
+sûr (rejette tout identifiant contenant `/` ou `..` ; tout identifiant de
+session Claude Code, un UUID, est accepté) ; l'écriture est atomique (fichier
+temporaire dans le même répertoire, puis `mv`), donc un lecteur n'observe
+jamais un fichier partiel, et un échec d'écriture ne bloque ni ne ralentit
+jamais le rendu. Supprimé avec les autres fichiers de `sessions/` à la fin de
+la session.
 
 ## Fichiers (embarqués sous `assets/`)
 

@@ -147,3 +147,27 @@ read_subagent_totals() {
   case "$sub_count" in ''|0|*[!0-9]*) sub_count="" ;; esac
   return 0
 }
+
+# --- Session snapshot: the raw statusLine JSON, verbatim, for a reader outside
+# this renderer (a Stream Deck plugin, a second dashboard). ---
+
+# write_session_snapshot — persist $2 to sessions/<id>.snapshot.json.
+# pre:  $1 the session id (untrusted); $2 the exact stdin bytes this refresh.
+# post: id non-empty and [A-Za-z0-9_-]+ only (rejects "/" and ".."; every
+#       Claude Code UUID id qualifies) -> file holds $2 exactly, via a
+#       same-dir temp + mv (never partial). Otherwise no change, no error to
+#       the render. Schema/removal: README.md. Proved by
+#       tests/statusline/test_session_snapshot.sh.
+write_session_snapshot() {
+  local session_id="$1" payload="$2" dir tmp
+  case "$session_id" in
+    ''|*[!A-Za-z0-9_-]*) return 0 ;;
+  esac
+  dir="${STATUSLINE_STATE_DIR}/sessions"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  tmp="${dir}/${session_id}.snapshot.json.tmp.$$"
+  printf '%s' "$payload" > "$tmp" 2>/dev/null \
+    && mv -f "$tmp" "${dir}/${session_id}.snapshot.json" 2>/dev/null
+  rm -f "$tmp" 2>/dev/null
+  return 0
+}
