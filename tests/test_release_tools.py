@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import importlib.util
 import hashlib
+import importlib.util
 import io
 import json
 import subprocess
 import tarfile
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parent.parent
 SBOM_SCRIPT = ROOT / "tools" / "gen-bundle-sbom.py"
@@ -33,7 +32,9 @@ def test_sbom_has_one_hashed_component_per_file(tmp_path):
 
 def test_release_bundle_builds_verifies_and_rejects_tampering(tmp_path):
     out = tmp_path / "dist"
-    subprocess.run(["bash", "tools/build-release-bundle.sh", str(out)], cwd=ROOT, check=True)
+    subprocess.run(
+        ["bash", "tools/build-release-bundle.sh", str(out)], cwd=ROOT, check=True
+    )
     bundle = out / "session-optimizer.tar.gz"
     checksum = out / "session-optimizer.tar.gz.sha256"
     manifest = out / "EXECUTABLE-MANIFEST.sha256"
@@ -42,15 +43,33 @@ def test_release_bundle_builds_verifies_and_rejects_tampering(tmp_path):
     assert document["components"]
 
     good = subprocess.run(
-        ["bash", "tools/verify-release-bundle.sh", str(bundle), str(checksum), str(manifest)],
-        cwd=ROOT, capture_output=True, text=True,
+        [
+            "bash",
+            "tools/verify-release-bundle.sh",
+            str(bundle),
+            str(checksum),
+            str(manifest),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert good.returncode == 0, good.stderr
     with bundle.open("ab") as handle:
         handle.write(b"tampered")
     bad = subprocess.run(
-        ["bash", "tools/verify-release-bundle.sh", str(bundle), str(checksum), str(manifest)],
-        cwd=ROOT, capture_output=True, text=True,
+        [
+            "bash",
+            "tools/verify-release-bundle.sh",
+            str(bundle),
+            str(checksum),
+            str(manifest),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert bad.returncode == 1
     assert "INTEGRITY FAILURE" in bad.stderr
@@ -65,15 +84,24 @@ def test_release_verifier_rejects_path_traversal_before_extraction(tmp_path):
         archive.addfile(member, io.BytesIO(payload))
 
     checksum = tmp_path / "unsafe.tar.gz.sha256"
-    checksum.write_text(f"{hashlib.sha256(bundle.read_bytes()).hexdigest()}  {bundle.name}\n")
+    checksum.write_text(
+        f"{hashlib.sha256(bundle.read_bytes()).hexdigest()}  {bundle.name}\n"
+    )
     manifest = tmp_path / "manifest.sha256"
     manifest.write_text("")
 
     result = subprocess.run(
-        ["bash", "tools/verify-release-bundle.sh", str(bundle), str(checksum), str(manifest)],
+        [
+            "bash",
+            "tools/verify-release-bundle.sh",
+            str(bundle),
+            str(checksum),
+            str(manifest),
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
+        check=False,
     )
     assert result.returncode == 1
     assert "unsafe archive path" in result.stderr

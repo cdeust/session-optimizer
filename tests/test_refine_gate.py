@@ -25,7 +25,10 @@ from pathlib import Path
 
 HOOK = (
     Path(__file__).resolve().parent.parent
-    / "plugins" / "refine-gate" / "hooks" / "refine_gate.py"
+    / "plugins"
+    / "refine-gate"
+    / "hooks"
+    / "refine_gate.py"
 )
 
 # 4 chars/token heuristic — see module docstring for source + bias note.
@@ -47,6 +50,7 @@ def run_gate(prompt: str) -> dict | None:
         capture_output=True,
         text=True,
         timeout=10,
+        check=False,
     )
     assert proc.returncode == 0, f"gate must always exit 0: {proc.stderr}"
     if not proc.stdout.strip():
@@ -114,6 +118,7 @@ def test_malformed_stdin_is_harmless():
         capture_output=True,
         text=True,
         timeout=10,
+        check=False,
     )
     assert proc.returncode == 0
     assert proc.stdout.strip() == ""

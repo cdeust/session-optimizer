@@ -7,10 +7,11 @@ import io
 import json
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "plugins" / "statusline" / "assets" / "transcript.py"
-SPEC = importlib.util.spec_from_file_location("session_optimizer_statusline_transcript", SCRIPT)
+SPEC = importlib.util.spec_from_file_location(
+    "session_optimizer_statusline_transcript", SCRIPT
+)
 telemetry = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(telemetry)
@@ -22,7 +23,8 @@ def _record(kind, timestamp, **fields):
     record = {"type": kind, "timestamp": timestamp, **fields}
     if kind == "assistant":
         record["message"] = {
-            "role": "assistant", "model": model,
+            "role": "assistant",
+            "model": model,
             "usage": {"output_tokens": output},
         }
     return record
@@ -86,11 +88,14 @@ def test_cache_load_and_build_incremental_paths(tmp_path, monkeypatch):
     assert telemetry.build(str(path)) == {}
     path.write_text("")
     assert telemetry.build(str(path)) == {}
-    _jsonl(path, [
-        _record("user", "2026-01-01T00:00:00Z"),
-        _record("assistant", "2026-01-01T00:00:04Z", output=20),
-        {"isCompactSummary": True},
-    ])
+    _jsonl(
+        path,
+        [
+            _record("user", "2026-01-01T00:00:00Z"),
+            _record("assistant", "2026-01-01T00:00:04Z", output=20),
+            {"isCompactSummary": True},
+        ],
+    )
     first = telemetry.build(str(path))
     assert first["compactions"] == 1 and first["tok_per_s"] == 5.0
 
@@ -101,7 +106,9 @@ def test_cache_load_and_build_incremental_paths(tmp_path, monkeypatch):
         fh.write(json.dumps({"subtype": "compact"}) + "\n")
     grown = telemetry.build(str(path))
     assert grown["compactions"] == 2
-    path.write_text(json.dumps(_record("assistant", "2026-01-01T00:00:05Z", output=1)) + "\n")
+    path.write_text(
+        json.dumps(_record("assistant", "2026-01-01T00:00:05Z", output=1)) + "\n"
+    )
     shrunk = telemetry.build(str(path))
     assert shrunk["compactions"] == 0
 

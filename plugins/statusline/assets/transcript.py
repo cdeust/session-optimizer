@@ -98,15 +98,11 @@ def _count_compactions(path: str, start: int) -> int:
     """Count compaction markers in path over [start, EOF). start must sit on a
     line boundary (it always does for append-only JSONL)."""
     try:
-        fh = open(path, "r", encoding="utf-8", errors="replace")
-    except OSError:
-        return 0
-    with fh:
-        try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
             fh.seek(start)
             return sum(1 for line in fh if _is_compaction(line))
-        except OSError:
-            return 0
+    except OSError:
+        return 0
 
 
 def _tail_records(path: str, size: int):
@@ -134,12 +130,14 @@ def _tail_records(path: str, size: int):
         msg = obj.get("message") or {}
         usage = msg.get("usage") or {}
         is_asst = obj.get("type") == "assistant" or msg.get("role") == "assistant"
-        out.append({
-            "ts": _epoch(obj.get("timestamp")),
-            "asst": bool(is_asst),
-            "out": int(usage.get("output_tokens", 0) or 0),
-            "model": msg.get("model") or obj.get("model"),
-        })
+        out.append(
+            {
+                "ts": _epoch(obj.get("timestamp")),
+                "asst": bool(is_asst),
+                "out": int(usage.get("output_tokens", 0) or 0),
+                "model": msg.get("model") or obj.get("model"),
+            }
+        )
     return out
 
 
@@ -200,7 +198,9 @@ def build(path: str):
     if same_file and size == prev_size:
         compactions = int(prev.get("compactions", 0) or 0)
     elif same_file and size > prev_size:
-        compactions = int(prev.get("compactions", 0) or 0) + _count_compactions(path, prev_size)
+        compactions = int(prev.get("compactions", 0) or 0) + _count_compactions(
+            path, prev_size
+        )
     else:
         compactions = _count_compactions(path, 0)
 
