@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parent.parent
 HOOKS = ROOT / "plugins" / "context-guard" / "hooks"
 TOOLS = ROOT / "plugins" / "context-guard" / "tools"
@@ -465,6 +464,7 @@ def _run_readme_snippet(script: str, fake_home: Path) -> str:
     """
     proc = subprocess.run(
         ["bash", "-c", script],
+        check=False,
         cwd=str(PLUGIN_ROOT),
         env={**os.environ, "HOME": str(fake_home)},
         capture_output=True,
@@ -572,6 +572,7 @@ def test_guard_degrades_to_inert_when_a_sibling_module_is_missing(
     }
     proc = subprocess.run(
         [sys.executable, str(dest / "stop-context-guard.py")],
+        check=False,
         input=json.dumps(payload),
         capture_output=True,
         text=True,
@@ -598,6 +599,7 @@ def test_tracker_degrades_to_inert_when_shared_core_is_missing(tmp_path):
     }
     proc = subprocess.run(
         [sys.executable, str(dest_hooks / "subagent-tracker.py")],
+        check=False,
         input=json.dumps(payload),
         capture_output=True,
         text=True,
