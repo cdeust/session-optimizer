@@ -47,14 +47,21 @@ from dataclasses import dataclass, field
 #   - cache write, 5-minute TTL : 1.25x input
 #   - cache write, 1-hour  TTL  : 2.00x input
 #   - cache read                : 0.10x input
-CACHE_WRITE_5M_MULT = 1.25  # source: Anthropic prompt-caching economics (claude-api skill, 2026-06-26)
-CACHE_WRITE_1H_MULT = 2.00  # source: Anthropic prompt-caching economics (claude-api skill, 2026-06-26)
-CACHE_READ_MULT = 0.10      # source: Anthropic prompt-caching economics (claude-api skill, 2026-06-26)
+CACHE_WRITE_5M_MULT = (
+    1.25  # source: Anthropic prompt-caching economics (claude-api skill, 2026-06-26)
+)
+CACHE_WRITE_1H_MULT = (
+    2.00  # source: Anthropic prompt-caching economics (claude-api skill, 2026-06-26)
+)
+CACHE_READ_MULT = (
+    0.10  # source: Anthropic prompt-caching economics (claude-api skill, 2026-06-26)
+)
 
 
 @dataclass(frozen=True)
 class ModelPrice:
     """Per-MTok input/output USD rates for one model family."""
+
     input_per_mtok: float
     output_per_mtok: float
 
@@ -62,13 +69,28 @@ class ModelPrice:
 # First substring match against the lowercased model id wins; mirrors the
 # matching discipline already used by ctxguard-thresholds.json.
 PRICING = [
-    ("fable",  ModelPrice(10.0, 50.0)),   # source: Anthropic pricing (claude-api skill, 2026-06-26)
-    ("mythos", ModelPrice(10.0, 50.0)),   # source: Anthropic pricing — same tier as Fable 5
-    ("opus",   ModelPrice(5.0, 25.0)),    # source: Anthropic pricing (claude-api skill, 2026-06-26)
-    ("sonnet", ModelPrice(3.0, 15.0)),    # source: Anthropic pricing (claude-api skill, 2026-06-26)
-    ("haiku",  ModelPrice(1.0, 5.0)),     # source: Anthropic pricing (claude-api skill, 2026-06-26)
+    (
+        "fable",
+        ModelPrice(10.0, 50.0),
+    ),  # source: Anthropic pricing (claude-api skill, 2026-06-26)
+    (
+        "mythos",
+        ModelPrice(10.0, 50.0),
+    ),  # source: Anthropic pricing — same tier as Fable 5
+    (
+        "opus",
+        ModelPrice(5.0, 25.0),
+    ),  # source: Anthropic pricing (claude-api skill, 2026-06-26)
+    (
+        "sonnet",
+        ModelPrice(3.0, 15.0),
+    ),  # source: Anthropic pricing (claude-api skill, 2026-06-26)
+    (
+        "haiku",
+        ModelPrice(1.0, 5.0),
+    ),  # source: Anthropic pricing (claude-api skill, 2026-06-26)
 ]
-_DEFAULT_PRICE = ModelPrice(5.0, 25.0)    # unknown model -> Opus-tier (conservative)
+_DEFAULT_PRICE = ModelPrice(5.0, 25.0)  # unknown model -> Opus-tier (conservative)
 
 
 def price_for(model_id):
@@ -87,6 +109,7 @@ def price_for(model_id):
 
 # --- Usage aggregate -------------------------------------------------------
 
+
 @dataclass
 class Usage:
     """Billed-token totals for one transcript, plus activity counters.
@@ -96,6 +119,7 @@ class Usage:
     record carries the `cache_creation` breakdown; otherwise the whole
     cache_creation total is attributed to the 5-minute tier (its default).
     """
+
     input_tokens: int = 0
     output_tokens: int = 0
     cache_write_5m: int = 0
@@ -126,8 +150,12 @@ class Usage:
         """Tokens that occupy the model's context window on the last turn's
         scale — input + both cache tiers + read. (Sum-of-turns here, used only
         for display magnitude, not for context-window enforcement.)"""
-        return (self.input_tokens + self.cache_write_5m
-                + self.cache_write_1h + self.cache_read)
+        return (
+            self.input_tokens
+            + self.cache_write_5m
+            + self.cache_write_1h
+            + self.cache_read
+        )
 
     def to_dict(self):
         return {
@@ -197,6 +225,51 @@ def _accumulate_record(obj, usage):
             usage.tool_uses += 1
 
 
+def _keyed_usage_record(line: str):
+    """Parse one JSONL line into a (key, ctx_magnitude, record) triple, or
+    None if the line is blank, malformed, or carries no usage payload.
+
+    Key is the message id, falling back to the record uuid (or the record's
+    own identity) so the record is still counted exactly once.
+    """
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    msg = obj.get("message") or {}
+    if not msg.get("usage"):
+        return None
+    key = msg.get("id") or obj.get("uuid") or id(obj)
+    return key, _ctx_magnitude(msg["usage"]), obj
+
+
+def _dedupe_by_message(fh) -> dict:
+    """Largest-usage-wins fold of an open transcript file's records by key."""
+    by_message: dict = {}
+    records = (r for line in fh if (r := _keyed_usage_record(line)) is not None)
+    for key, ctx, obj in records:
+        prev = by_message.get(key)
+        if prev is None or ctx > prev[0]:
+            by_message[key] = (ctx, obj)
+    return by_message
+
+
+def _open_transcript(path):
+    """Open path for reading, or None if it's missing/unreadable.
+
+    Exception scope is deliberately narrow: this guards ONLY the open()
+    call. A ValueError/TypeError raised later, while reading a malformed
+    record, must NOT be caught here — see parse_transcript_usage.
+    """
+    try:
+        return open(path, "r", encoding="utf-8", errors="replace")
+    except (OSError, TypeError, ValueError):
+        return None
+
+
 def parse_transcript_usage(path):
     """Parse one transcript JSONL into a deduplicated billed Usage.
 
@@ -208,33 +281,15 @@ def parse_transcript_usage(path):
 
     Precondition:  path is a path string.
     Postcondition: returns a Usage (zeroed if the file is missing/unreadable).
+    A malformed per-record usage payload (e.g. a non-numeric token count) is
+    NOT swallowed here: it propagates as ValueError/TypeError, since that is
+    a data-quality bug in the transcript, not a missing/unreadable file.
     """
-    by_message = {}
-    try:
-        fh = open(path, "r", encoding="utf-8", errors="replace")
-    except (OSError, TypeError, ValueError):
+    fh = _open_transcript(path)
+    if fh is None:
         return Usage()
-    try:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            msg = obj.get("message") or {}
-            if not msg.get("usage"):
-                continue
-            # Key by message id; if absent, fall back to the record uuid so the
-            # record is still counted exactly once.
-            key = msg.get("id") or obj.get("uuid") or id(obj)
-            ctx = _ctx_magnitude(msg["usage"])
-            prev = by_message.get(key)
-            if prev is None or ctx > prev[0]:
-                by_message[key] = (ctx, obj)
-    finally:
-        fh.close()
+    with fh:
+        by_message = _dedupe_by_message(fh)
 
     total = Usage()
     for _, obj in by_message.values():
@@ -244,17 +299,21 @@ def parse_transcript_usage(path):
 
 def _ctx_magnitude(u):
     """Cheap comparison key for largest-usage-wins dedup. Pure."""
-    return (int(u.get("input_tokens", 0) or 0)
-            + int(u.get("cache_creation_input_tokens", 0) or 0)
-            + int(u.get("cache_read_input_tokens", 0) or 0)
-            + int(u.get("output_tokens", 0) or 0))
+    return (
+        int(u.get("input_tokens", 0) or 0)
+        + int(u.get("cache_creation_input_tokens", 0) or 0)
+        + int(u.get("cache_read_input_tokens", 0) or 0)
+        + int(u.get("output_tokens", 0) or 0)
+    )
 
 
 # --- Subagent discovery ----------------------------------------------------
 
+
 @dataclass
 class SubagentRecord:
     """One subagent's identity (from its .meta.json) plus parsed usage/cost."""
+
     agent_id: str
     agent_type: str
     description: str
@@ -286,7 +345,7 @@ def subagent_record(transcript_path):
     (the cleanest attribution source — no need to parse the parent transcript).
     """
     agent_id = _agent_id_from_path(transcript_path)
-    meta_path = transcript_path[:-len(".jsonl")] + ".meta.json"
+    meta_path = transcript_path[: -len(".jsonl")] + ".meta.json"
     agent_type, description, tool_use_id = _read_meta(meta_path)
     usage = parse_transcript_usage(transcript_path)
     return SubagentRecord(
@@ -304,7 +363,7 @@ def _agent_id_from_path(path):
     """Extract the agentId from an `agent-<id>.jsonl` filename. Pure."""
     base = os.path.basename(path)
     if base.startswith("agent-") and base.endswith(".jsonl"):
-        return base[len("agent-"):-len(".jsonl")]
+        return base[len("agent-") : -len(".jsonl")]
     return base
 
 
@@ -339,6 +398,7 @@ def session_dir_for(transcript_path):
 
 
 # --- CLI: retrospective per-agent-type report ------------------------------
+
 
 def _fmt_tokens(n):
     if n >= 1_000_000:
@@ -381,7 +441,8 @@ def build_report(cwd):
             grand.add(rec.usage)
             grand_cost += rec.cost_usd
             bucket = by_type.setdefault(
-                rec.agent_type, {"count": 0, "usage": Usage(), "cost_usd": 0.0})
+                rec.agent_type, {"count": 0, "usage": Usage(), "cost_usd": 0.0}
+            )
             bucket["count"] += 1
             bucket["usage"].add(rec.usage)
             bucket["cost_usd"] += rec.cost_usd
@@ -405,8 +466,10 @@ def build_report(cwd):
 
 def _print_table(report):
     types = report["by_agent_type"]
-    print(f"Subagent usage — {report['subagent_count']} subagent runs across "
-          f"{report['project_dir']}")
+    print(
+        f"Subagent usage — {report['subagent_count']} subagent runs across "
+        f"{report['project_dir']}"
+    )
     if not types:
         print("  (no subagent transcripts found)")
         return
@@ -416,15 +479,19 @@ def _print_table(report):
     for t, b in types.items():
         u = b["usage"]
         cache = u["cache_write_5m"] + u["cache_write_1h"] + u["cache_read"]
-        print(f"  {t:<24} {b['count']:>5} "
-              f"{_fmt_tokens(u['input_tokens']):>7} "
-              f"{_fmt_tokens(u['output_tokens']):>7} "
-              f"{_fmt_tokens(cache):>7} "
-              f"${b['cost_usd']:>8.2f}")
+        print(
+            f"  {t:<24} {b['count']:>5} "
+            f"{_fmt_tokens(u['input_tokens']):>7} "
+            f"{_fmt_tokens(u['output_tokens']):>7} "
+            f"{_fmt_tokens(cache):>7} "
+            f"${b['cost_usd']:>8.2f}"
+        )
     tot = report["totals"]
     print("  " + "-" * (len(header) - 2))
-    print(f"  {'TOTAL':<24} {report['subagent_count']:>5} "
-          f"{'':>7} {'':>7} {'':>7} ${tot['cost_usd']:>8.2f}")
+    print(
+        f"  {'TOTAL':<24} {report['subagent_count']:>5} "
+        f"{'':>7} {'':>7} {'':>7} ${tot['cost_usd']:>8.2f}"
+    )
 
 
 def main(argv):

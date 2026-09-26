@@ -21,18 +21,28 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "statusline"
 INSTALLER = PLUGIN / "install.sh"
 ASSETS = PLUGIN / "assets"
-CONTEXT_GUARD_HOOK = ROOT / "plugins" / "context-guard" / "hooks" / "stop-context-guard.py"
+CONTEXT_GUARD_HOOK = (
+    ROOT / "plugins" / "context-guard" / "hooks" / "stop-context-guard.py"
+)
 
 CODE_FILES = ("statusline-command.sh", "costs.sh", "pricing.json", "transcript.py")
 MODULES = (
-    "platform", "palette", "fit", "severity", "format",
-    "config", "gitctx", "session_state", "layout", "render",
-    "pricing", "ledger_report",
+    "platform",
+    "palette",
+    "fit",
+    "severity",
+    "format",
+    "config",
+    "gitctx",
+    "session_state",
+    "layout",
+    "render",
+    "pricing",
+    "ledger_report",
 )
 # What Claude Code itself keeps at the root of ~/.claude in the fixture. The
 # migration must not touch any of it.
@@ -42,7 +52,10 @@ CLAUDE_OWNED = {"settings.json", "projects", "plugins"}
 SHARED = {"ctxguard-thresholds.json"}
 BACKUP_KEEP = 3
 SESSION = "0072d0e1-0264-4b5a-8367-61e1a4cd9fbc"
-OTHER_SESSIONS = ("006ab18f-47a8-43e8-a9e0-8573c3c32c1e", "00b10a42-2ad8-4c63-a7ff-9e057a2fb530")
+OTHER_SESSIONS = (
+    "006ab18f-47a8-43e8-a9e0-8573c3c32c1e",
+    "00b10a42-2ad8-4c63-a7ff-9e057a2fb530",
+)
 
 
 def _env(home: Path, **extra: str) -> dict:
@@ -57,41 +70,60 @@ def _env(home: Path, **extra: str) -> dict:
 
 def _installer(home: Path, verb: str, **extra: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["bash", str(INSTALLER), verb], env=_env(home, **extra),
-        capture_output=True, text=True, cwd=str(home),
+        ["bash", str(INSTALLER), verb],
+        env=_env(home, **extra),
+        capture_output=True,
+        text=True,
+        cwd=str(home),
+        check=False,
     )
 
 
-def _costs(home: Path, verb: str, stdin: str = "", **extra: str) -> subprocess.CompletedProcess:
+def _costs(
+    home: Path, verb: str, stdin: str = "", **extra: str
+) -> subprocess.CompletedProcess:
     # capture_output holds the stdout pipe open until every process that
     # inherited it has exited, the backgrounded cleaner included. That EOF is
     # what makes the post-conditions below deterministic: no clock, no polling.
     return subprocess.run(
         ["bash", str(home / ".claude" / "statusline" / "costs.sh"), verb],
-        input=stdin, env=_env(home, **extra), capture_output=True, text=True, cwd=str(home),
+        input=stdin,
+        env=_env(home, **extra),
+        capture_output=True,
+        text=True,
+        cwd=str(home),
+        check=False,
     )
 
 
 def _status_json(home: Path, transcript: Path) -> str:
-    return json.dumps({
-        "session_id": SESSION,
-        "transcript_path": str(transcript),
-        "model": {"display_name": "Opus 4.8"},
-        "workspace": {"current_dir": str(home)},
-        "context_window": {"used_percentage": 20, "total_input_tokens": 200000},
-        "cost": {"total_cost_usd": 1.5, "total_duration_ms": 1000},
-    })
+    return json.dumps(
+        {
+            "session_id": SESSION,
+            "transcript_path": str(transcript),
+            "model": {"display_name": "Opus 4.8"},
+            "workspace": {"current_dir": str(home)},
+            "context_window": {"used_percentage": 20, "total_input_tokens": 200000},
+            "cost": {"total_cost_usd": 1.5, "total_duration_ms": 1000},
+        }
+    )
 
 
 def _transcript(home: Path, session: str = SESSION) -> Path:
     """A synthetic session transcript with one priced subagent."""
     project = home / ".claude" / "projects" / "-tmp-project"
     project.mkdir(parents=True, exist_ok=True)
-    line = json.dumps({
-        "type": "assistant", "requestId": "req-1",
-        "message": {"id": "msg-1", "model": "claude-opus-4-8",
-                    "usage": {"input_tokens": 1000, "output_tokens": 500}},
-    })
+    line = json.dumps(
+        {
+            "type": "assistant",
+            "requestId": "req-1",
+            "message": {
+                "id": "msg-1",
+                "model": "claude-opus-4-8",
+                "usage": {"input_tokens": 1000, "output_tokens": 500},
+            },
+        }
+    )
     main = project / f"{session}.jsonl"
     main.write_text(line + "\n")
     sub = project / session / "subagents"
@@ -104,7 +136,9 @@ def _tree(root: Path) -> dict:
     out = {}
     for path in sorted(root.rglob("*")):
         rel = str(path.relative_to(root))
-        out[rel] = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "dir"
+        out[rel] = (
+            hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "dir"
+        )
     return out
 
 
@@ -115,12 +149,21 @@ def _flat_fixture(home: Path) -> Path:
     claude.mkdir()
     (claude / "projects").mkdir()
     (claude / "plugins").mkdir()
-    (claude / "settings.json").write_text(json.dumps({
-        "model": "opus",
-        "statusLine": {"type": "command",
-                       "command": f"bash {claude}/statusline-command.sh",
-                       "padding": 1, "refreshInterval": 10},
-    }, indent=2) + "\n")
+    (claude / "settings.json").write_text(
+        json.dumps(
+            {
+                "model": "opus",
+                "statusLine": {
+                    "type": "command",
+                    "command": f"bash {claude}/statusline-command.sh",
+                    "padding": 1,
+                    "refreshInterval": 10,
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
     _flat_code(claude)
     _flat_state(claude)
     return claude
@@ -129,7 +172,9 @@ def _flat_fixture(home: Path) -> Path:
 def _flat_code(claude: Path) -> None:
     """Old code, one module out of date, a stale backup inside the module dir,
     the prose hook's *.bak.* copies, and the user-tuned config files."""
-    (claude / "statusline-command.sh").write_text("#!/usr/bin/env bash\necho old renderer\n")
+    (claude / "statusline-command.sh").write_text(
+        "#!/usr/bin/env bash\necho old renderer\n"
+    )
     (claude / "costs.sh").write_text("#!/usr/bin/env bash\necho old ledger\n")
     (claude / "pricing.json").write_text('{"models": []}\n')
     (claude / "statusline-transcript.py").write_text("print('old')\n")
@@ -142,32 +187,54 @@ def _flat_code(claude: Path) -> None:
     (lib / "format.sh").write_text("# out of date\n")
     (lib / "format.sh.bak.20260803231416").write_text("# older still\n")
     (claude / "costs.sh.bak.20260803231416").write_text("echo even older\n")
-    (claude / "statusline-command.sh.bak.20260803231416").write_text("echo even older\n")
-    (claude / "statusline-budget.json").write_text('{"size": "xl", "cache_ttl_min": 60}\n')
+    (claude / "statusline-command.sh.bak.20260803231416").write_text(
+        "echo even older\n"
+    )
+    (claude / "statusline-budget.json").write_text(
+        '{"size": "xl", "cache_ttl_min": 60}\n'
+    )
     (claude / "ctxguard-thresholds.json").write_text(
-        '{"models": [{"match": "opus", "warn": 1, "hard": 2}], "default": {"warn": 3, "hard": 4}}\n')
+        '{"models": [{"match": "opus", "warn": 1, "hard": 2}], "default": {"warn": 3, "hard": 4}}\n'
+    )
 
 
 def _flat_state(claude: Path) -> None:
     """Runtime state: ledger, lock, stamp, orphan tmp, fragments, hidden caches."""
     ledger = claude / "statusline-costs.jsonl"
-    ledger.write_text(json.dumps({"session_id": SESSION, "date": "2026-09-10",
-                                  "cost_at_day_start": 0, "cost_usd": 1.25,
-                                  "month": "2026-09", "month_day_start": 0}) + "\n")
+    ledger.write_text(
+        json.dumps(
+            {
+                "session_id": SESSION,
+                "date": "2026-09-10",
+                "cost_at_day_start": 0,
+                "cost_usd": 1.25,
+                "month": "2026-09",
+                "month_day_start": 0,
+            }
+        )
+        + "\n"
+    )
     (claude / "statusline-costs.jsonl.lock").mkdir()
     (claude / "statusline-costs.jsonl.cleanup-stamp").write_text("")
     (claude / "statusline-costs.jsonl.tmp.4242").write_text("orphan\n")
     (claude / "statusline-costs.jsonl.bak.20260801-120000").write_text("seed backup\n")
     for sid in (SESSION, *OTHER_SESSIONS):
-        (claude / f"statusline-costs.jsonl.main.{sid}").write_text(f"1700000000 0.5 1700000001 {sid}\n")
+        (claude / f"statusline-costs.jsonl.main.{sid}").write_text(
+            f"1700000000 0.5 1700000001 {sid}\n"
+        )
     for sid in OTHER_SESSIONS:
-        (claude / f"statusline-costs.jsonl.sub.{sid}").write_text(f"1700000000 0.1 1700000001 {sid}\n")
+        (claude / f"statusline-costs.jsonl.sub.{sid}").write_text(
+            f"1700000000 0.1 1700000001 {sid}\n"
+        )
     (claude / ".statusline-cost-cache.json").write_text("{}\n")
-    (claude / ".statusline-transcript-cache.json").write_text('{"path": "/x", "compactions": 3}\n')
+    (claude / ".statusline-transcript-cache.json").write_text(
+        '{"path": "/x", "compactions": 3}\n'
+    )
     (claude / ".statusline-transcript.lock").write_text("")
 
 
 # --- Migration ---------------------------------------------------------------
+
 
 def test_migration_leaves_the_root_to_claude_code_and_places_the_code(tmp_path):
     claude = _flat_fixture(tmp_path)
@@ -187,7 +254,9 @@ def test_migration_leaves_the_root_to_claude_code_and_places_the_code(tmp_path):
     assert os.access(target / "statusline-command.sh", os.X_OK)
     assert os.access(target / "costs.sh", os.X_OK)
     assert {p.name for p in (target / "lib").iterdir()} == {f"{m}.sh" for m in MODULES}
-    assert (target / "lib" / "format.sh").read_bytes() == (ASSETS / "lib" / "format.sh").read_bytes()
+    assert (target / "lib" / "format.sh").read_bytes() == (
+        ASSETS / "lib" / "format.sh"
+    ).read_bytes()
     assert (target / "README.md").read_bytes() == (PLUGIN / "README.md").read_bytes()
 
     # User-tuned files moved (budget) or stayed (shared thresholds), byte for byte.
@@ -200,7 +269,8 @@ def test_migration_leaves_the_root_to_claude_code_and_places_the_code(tmp_path):
     assert settings["statusLine"] == {
         "type": "command",
         "command": f"bash {target}/statusline-command.sh",
-        "padding": 1, "refreshInterval": 10,
+        "padding": 1,
+        "refreshInterval": 10,
     }
 
 
@@ -221,8 +291,11 @@ def test_migration_moves_runtime_state_and_backs_up_what_it_supersedes(tmp_path)
     assert not list(state.glob("costs.jsonl.tmp.*"))
     fragments = {p.name for p in (state / "sessions").iterdir()}
     assert fragments == {f"{sid}.main" for sid in (SESSION, *OTHER_SESSIONS)} | {
-        f"{sid}.sub" for sid in OTHER_SESSIONS}
-    assert (state / "sessions" / f"{SESSION}.main").read_text().rstrip().endswith(SESSION)
+        f"{sid}.sub" for sid in OTHER_SESSIONS
+    }
+    assert (
+        (state / "sessions" / f"{SESSION}.main").read_text().rstrip().endswith(SESSION)
+    )
 
     # The superseded code went to ONE backup run under state/backup, and no
     # *.bak.* file survives anywhere else.
@@ -243,10 +316,17 @@ def test_installer_seeds_a_fresh_home_without_touching_the_root(tmp_path):
     result = _installer(tmp_path, "install")
     assert result.returncode == 0, result.stdout + result.stderr
     claude = tmp_path / ".claude"
-    assert {p.name for p in claude.iterdir()} == {"settings.json", "statusline"} | SHARED
+    assert {p.name for p in claude.iterdir()} == {
+        "settings.json",
+        "statusline",
+    } | SHARED
     target = claude / "statusline"
-    assert (target / "statusline-budget.json").read_bytes() == (ASSETS / "statusline-budget.json").read_bytes()
-    assert (claude / "ctxguard-thresholds.json").read_bytes() == (ASSETS / "ctxguard-thresholds.json").read_bytes()
+    assert (target / "statusline-budget.json").read_bytes() == (
+        ASSETS / "statusline-budget.json"
+    ).read_bytes()
+    assert (claude / "ctxguard-thresholds.json").read_bytes() == (
+        ASSETS / "ctxguard-thresholds.json"
+    ).read_bytes()
     assert (target / "state" / "sessions").is_dir()
     settings = json.loads((claude / "settings.json").read_text())
     assert settings["statusLine"]["command"] == f"bash {target}/statusline-command.sh"
@@ -305,7 +385,10 @@ def test_sync_rewires_a_settings_command_that_still_names_the_old_path(tmp_path)
     result = _installer(tmp_path, "sync")
     assert result.returncode == 0, result.stderr
     rewired = json.loads((claude / "settings.json").read_text())
-    assert rewired["statusLine"]["command"] == f"bash {claude}/statusline/statusline-command.sh"
+    assert (
+        rewired["statusLine"]["command"]
+        == f"bash {claude}/statusline/statusline-command.sh"
+    )
     assert rewired["statusLine"]["padding"] == 0
 
 
@@ -320,7 +403,10 @@ def test_sync_refuses_to_rewrite_an_unparseable_settings_file(tmp_path):
 
 # --- Runtime paths -----------------------------------------------------------
 
-def test_costs_update_writes_its_fragments_under_state_and_nothing_at_the_root(tmp_path):
+
+def test_costs_update_writes_its_fragments_under_state_and_nothing_at_the_root(
+    tmp_path,
+):
     assert _installer(tmp_path, "install").returncode == 0
     claude = tmp_path / ".claude"
     transcript = _transcript(tmp_path)
@@ -330,12 +416,21 @@ def test_costs_update_writes_its_fragments_under_state_and_nothing_at_the_root(t
     assert result.returncode == 0, result.stderr
 
     state = claude / "statusline" / "state"
-    rows = [json.loads(line) for line in (state / "costs.jsonl").read_text().splitlines()]
+    rows = [
+        json.loads(line) for line in (state / "costs.jsonl").read_text().splitlines()
+    ]
     assert [r["session_id"] for r in rows] == [SESSION]
     assert rows[0]["cost_usd"] > 0
-    assert {p.name for p in (state / "sessions").iterdir()} == {f"{SESSION}.main", f"{SESSION}.sub"}
+    assert {p.name for p in (state / "sessions").iterdir()} == {
+        f"{SESSION}.main",
+        f"{SESSION}.sub",
+    }
     assert {p.name for p in state.iterdir()} == {
-        "costs.jsonl", "costs.jsonl.cleanup-stamp", "sessions", "backup"}
+        "costs.jsonl",
+        "costs.jsonl.cleanup-stamp",
+        "sessions",
+        "backup",
+    }
     assert {p.name for p in claude.iterdir()} == root_before
     assert _costs(tmp_path, "today").stdout.strip() != "0"
 
@@ -344,12 +439,18 @@ def test_cost_log_override_relocates_the_ledger_and_its_fragments_together(tmp_p
     assert _installer(tmp_path, "install").returncode == 0
     transcript = _transcript(tmp_path)
     elsewhere = tmp_path / "elsewhere" / "ledger.jsonl"
-    result = _costs(tmp_path, "update", _status_json(tmp_path, transcript),
-                    STATUSLINE_COST_LOG=str(elsewhere))
+    result = _costs(
+        tmp_path,
+        "update",
+        _status_json(tmp_path, transcript),
+        STATUSLINE_COST_LOG=str(elsewhere),
+    )
     assert result.returncode == 0, result.stderr
     assert elsewhere.is_file()
     assert {p.name for p in (elsewhere.parent / "sessions").iterdir()} == {
-        f"{SESSION}.main", f"{SESSION}.sub"}
+        f"{SESSION}.main",
+        f"{SESSION}.sub",
+    }
     state = tmp_path / ".claude" / "statusline" / "state"
     assert not (state / "costs.jsonl").exists()
     assert list((state / "sessions").iterdir()) == []
@@ -381,8 +482,13 @@ def test_renderer_runs_from_the_installed_layout_and_writes_state_only(tmp_path)
     renderer = claude / "statusline" / "statusline-command.sh"
 
     result = subprocess.run(
-        ["bash", str(renderer)], input=_status_json(tmp_path, transcript),
-        env=_env(tmp_path), capture_output=True, text=True, cwd=str(tmp_path),
+        ["bash", str(renderer)],
+        input=_status_json(tmp_path, transcript),
+        env=_env(tmp_path),
+        capture_output=True,
+        text=True,
+        cwd=str(tmp_path),
+        check=False,
     )
     assert result.returncode == 0, result.stderr
     assert "model" in result.stdout
@@ -406,6 +512,7 @@ def test_verify_reports_the_installed_layout(tmp_path):
 
 # --- Contracts pinned in the shipped files -----------------------------------
 
+
 def test_session_start_hook_runs_the_deterministic_sync():
     hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())
     (entry,) = hooks["hooks"]["SessionStart"]
@@ -425,11 +532,25 @@ def test_shared_thresholds_file_stays_where_both_plugins_read_it():
     assert "ctxguard-thresholds.json" in installer
 
 
-@pytest.mark.parametrize("name", ["costs.sh", "statusline-command.sh", "transcript.py",
-                                  "lib/session_state.sh", "lib/config.sh"])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "costs.sh",
+        "statusline-command.sh",
+        "transcript.py",
+        "lib/session_state.sh",
+        "lib/config.sh",
+    ],
+)
 def test_shipped_scripts_name_no_root_level_runtime_file(name):
     text = (ASSETS / name).read_text()
-    for legacy in ("/.claude/statusline-costs", "/.claude/costs.sh", "/.claude/statusline-lib",
-                   "/.claude/statusline-transcript", "/.claude/.statusline-", "/.claude/pricing.json",
-                   "/.claude/statusline-budget.json"):
+    for legacy in (
+        "/.claude/statusline-costs",
+        "/.claude/costs.sh",
+        "/.claude/statusline-lib",
+        "/.claude/statusline-transcript",
+        "/.claude/.statusline-",
+        "/.claude/pricing.json",
+        "/.claude/statusline-budget.json",
+    ):
         assert legacy not in text, f"{name} still names {legacy}"

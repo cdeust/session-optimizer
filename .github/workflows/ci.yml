@@ -23,7 +23,14 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: python -m pip install --require-hashes -r requirements-dev.lock
+        run: python -m pip install --require-hashes --no-deps -r requirements-dev.txt
+
+      # #39: belt-and-suspenders between a hand edit and the next dependabot
+      # run. See tools/check-lock-drift.py docstring for the naming this
+      # guards and why dependabot can regenerate requirements-dev.txt itself
+      # now.
+      - name: Verify requirements-dev.txt matches requirements-dev.in
+        run: python tools/check-lock-drift.py requirements-dev.in requirements-dev.txt
 
       # Pinned rather than taken from apt: the distro build is several releases
       # behind, and the two versions do not report the same findings — it raises
@@ -48,7 +55,10 @@ jobs:
           coverage xml
 
       - name: Enforce Python coding standard
-        run: ruff check plugins tests
+        run: ruff check plugins tests tools
+
+      - name: Enforce Python formatting
+        run: ruff format --check plugins tests tools
 
       - name: Statusline heat-track tests
         run: bash tests/statusline/test_heat_rgb.sh

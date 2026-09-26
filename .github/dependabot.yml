@@ -13,7 +13,14 @@ updates:
         patterns:
           - "*"
 
-  - package-ecosystem: "pip"
+  # requirements-dev.in/.txt is a uv-compiled pair (uv pip compile), not a
+  # plain pip requirements file. dependabot-core's "pip" ecosystem runs
+  # pip-tools' pip-compile to regenerate a lock; "uv" runs the uv binary,
+  # matching how this pair is actually produced. Source:
+  # https://github.com/dependabot/dependabot-core/blob/f3a79fa0711aca171b2174b855d9f21b16237961/uv/lib/dependabot/uv/file_fetcher.rb
+  # ("Repo must contain a requirements.txt, uv.lock, requirements.in, or
+  # pyproject.toml" -- no pyproject.toml/uv.lock required for this pair).
+  - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"

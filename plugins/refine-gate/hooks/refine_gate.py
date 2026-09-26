@@ -36,7 +36,10 @@ _MARKERS: list[tuple[str, str]] = [
         "named-but-unlocated solution",
         r"\bthe \w+ (solution|approach|fix|version|release|implementation|way)\b",
     ),
-    ("comparison to unstated referent", r"\b(like|as|same as) (before|previously|last time|usual)\b"),
+    (
+        "comparison to unstated referent",
+        r"\b(like|as|same as) (before|previously|last time|usual)\b",
+    ),
     ("exact-behavior reference", r"\bexactly (as|like)\b"),
     ("repeat-failure", r"\bback to square one\b"),
     (

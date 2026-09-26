@@ -7,10 +7,11 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "plugins" / "refine-gate" / "tools" / "measure_refine_overhead.py"
-SPEC = importlib.util.spec_from_file_location("session_optimizer_measure_refine", SCRIPT)
+SPEC = importlib.util.spec_from_file_location(
+    "session_optimizer_measure_refine", SCRIPT
+)
 measure = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(measure)
@@ -33,7 +34,9 @@ def test_collect_prompts_filters_non_user_and_harness_records(tmp_path, monkeypa
 
 
 def test_main_reports_tier_mix(monkeypatch, capsys):
-    monkeypatch.setattr(measure, "collect_prompts", lambda: ["tier1", "tier2", "silent"])
+    monkeypatch.setattr(
+        measure, "collect_prompts", lambda: ["tier1", "tier2", "silent"]
+    )
 
     def fake_run(args, *, input, **kwargs):
         if "tier1" in input:
@@ -42,9 +45,13 @@ def test_main_reports_tier_mix(monkeypatch, capsys):
             ctx = "names no concrete artifact"
         else:
             return SimpleNamespace(stdout="")
-        return SimpleNamespace(stdout=json.dumps({
-            "hookSpecificOutput": {"additionalContext": ctx},
-        }))
+        return SimpleNamespace(
+            stdout=json.dumps(
+                {
+                    "hookSpecificOutput": {"additionalContext": ctx},
+                }
+            )
+        )
 
     monkeypatch.setattr(measure.subprocess, "run", fake_run)
     measure.main()

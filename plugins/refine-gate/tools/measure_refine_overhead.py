@@ -31,6 +31,28 @@ CHARS_PER_TOKEN = 4
 MAX_TRANSCRIPTS = 40
 
 
+def _extract_prompt(line: str) -> str | None:
+    """Pull a typed user-prompt string out of one transcript JSONL line.
+
+    Returns None for anything that isn't a plain-text user prompt: bad
+    JSON, non-user records, tool_result arrays, or harness artifacts
+    (command wrappers, hook echoes, caveat banners, empty lines).
+    """
+    try:
+        d = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+    if d.get("type") != "user":
+        return None
+    content = (d.get("message") or {}).get("content")
+    if not isinstance(content, str):
+        return None
+    t = content.strip()
+    if not t or t[0] in "</" or t.startswith("Caveat:"):
+        return None
+    return t
+
+
 def collect_prompts() -> list[str]:
     projects = Path.home() / ".claude" / "projects"
     files = sorted(
@@ -42,22 +64,7 @@ def collect_prompts() -> list[str]:
     for f in files:
         try:
             with open(f) as fh:
-                for line in fh:
-                    try:
-                        d = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if d.get("type") != "user":
-                        continue
-                    content = (d.get("message") or {}).get("content")
-                    if not isinstance(content, str):
-                        continue  # tool_result arrays, not typed prompts
-                    t = content.strip()
-                    # Skip harness artifacts: command wrappers, hook
-                    # echoes, caveat banners, empty lines.
-                    if not t or t[0] in "</" or t.startswith("Caveat:"):
-                        continue
-                    prompts.append(t)
+                prompts.extend(p for line in fh if (p := _extract_prompt(line)))
         except OSError:
             continue
     return prompts
@@ -74,6 +81,7 @@ def main() -> None:
             capture_output=True,
             text=True,
             timeout=10,
+            check=False,
         )
         out = proc.stdout.strip()
         if not out:
