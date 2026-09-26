@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Session optimizer, split into three independently installable plugins: context-guard (Stop-hook context budget + memory-writer checkpoint subagent + subagent spend tracker), refine-gate (UserPromptSubmit prompt-binding gate + /refine skill), and statusline (multi-line status bar + install skill).",
-    "version": "2.3.0"
+    "version": "2.3.1"
   },
   "plugins": [
     {
       "name": "context-guard",
       "source": "./plugins/context-guard",
       "description": "Context-budget guard: a Stop hook enforces a per-model checkpoint protocol — at the WARN threshold it writes a mechanical checkpoint stub and delegates persistence to a budgeted memory-writer subagent as a reflection pause, at the hard cap it forces checkpoint-then-clear. A SubagentStop tracker surfaces true session spend (main thread + subagents). Default protocol uses only vanilla Claude Code; a scoped memory layer is detected at runtime when installed.",
-      "version": "2.0.1",
+      "version": "2.0.2",
       "author": {
         "name": "Clement Deust",
         "email": "admin@ai-architect.tools"

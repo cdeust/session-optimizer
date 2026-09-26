@@ -106,13 +106,33 @@ The message composition lives in `hooks/checkpoint_protocol.py`
 ### Test the guard
 
 ```bash
-T=$(mktemp); printf '{"message":{"model":"claude-opus-4-8","usage":{"input_tokens":105000,"cache_read_input_tokens":100000,"cache_creation_input_tokens":0}}}\n' > "$T"
-echo '{"session_id":"demo","transcript_path":"'"$T"'","cwd":"'"$PWD"'","stop_hook_active":false}' \
-  | python3 hooks/stop-context-guard.py | python3 -m json.tool
-rm -f "$T"
+T=$(mktemp)
+printf '{"message":{"model":"claude-opus-4-8","usage":{"input_tokens":105000,"cache_read_input_tokens":100000,"cache_creation_input_tokens":0}}}\n{"message":{"type":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}\n' > "$T"
+SID="demo-$(date +%s)"
+FAKE_HOME=$(mktemp -d)
+echo '{"session_id":"'"$SID"'","transcript_path":"'"$T"'","cwd":"'"$PWD"'","stop_hook_active":false}' \
+  | HOME="$FAKE_HOME" python3 hooks/stop-context-guard.py | python3 -m json.tool
+rm -f "$T" "/tmp/zetetic-ctxguard-$SID.json"
+rm -rf "$FAKE_HOME"
 ```
 
-Expected: a `decision: block` payload with the checkpoint procedure.
+Expected: a `decision: block` payload with the checkpoint procedure. Notes on
+the snippet itself:
+
+- The transcript needs **two** lines: an assistant `usage` record (so the
+  hook can measure context tokens) and an assistant `tool_use` block (so the
+  activity gate — `_has_activity_since`, added in
+  [20213dc](https://github.com/cdeust/session-optimizer/commit/20213dc)) —
+  sees real work happened since the last fire and does not skip silently.
+- `SID` must be unique per run (`"demo-$(date +%s)"`), and its fire-once
+  state file (`/tmp/zetetic-ctxguard-$SID.json`) must be removed afterward —
+  otherwise re-running this exact snippet with a fixed `session_id` produces
+  no output on the second and every subsequent run.
+- `HOME` is sandboxed to a throwaway directory for the duration of the
+  command (the hook resolves the checkpoint path via
+  `os.path.expanduser("~")`, so `HOME` redirects it) and removed afterward —
+  without this the snippet overwrites your real
+  `~/.claude/memories/checkpoints/latest.md`.
 
 ## Subagent usage tracker
 
@@ -171,22 +191,28 @@ SID="demo-$(date +%s)"
 echo '{"session_id":"'"$SID"'","transcript_path":"<a real agent-*.jsonl path>","cwd":"'"$PWD"'"}' \
   | python3 hooks/subagent-tracker.py
 cat "/tmp/zetetic-subagents-$SID.json" | python3 -m json.tool
+rm -f "/tmp/zetetic-subagents-$SID.json"
 ```
 
 ## Manual install (without the plugin system)
 
 ```bash
 mkdir -p ~/.claude/hooks ~/.claude/agents
-cp hooks/stop-context-guard.py hooks/checkpoint_protocol.py ~/.claude/hooks/
+cp hooks/stop-context-guard.py hooks/checkpoint_protocol.py \
+   hooks/checkpoint_stub.py hooks/subagent_spend.py hooks/thresholds.py \
+   hooks/transcript_lines.py hooks/transcript_scan.py ~/.claude/hooks/
 chmod +x ~/.claude/hooks/stop-context-guard.py
 cp agents/memory-writer.md ~/.claude/agents/memory-writer.md
 ```
 
-`stop-context-guard.py` imports `checkpoint_protocol.py` from its own
-directory and `subagent-tracker.py` imports the shared core from the sibling
-`tools/` directory — keep each pair together. Then register the `Stop` /
-`SubagentStop` entries (see `hooks/hooks.json`) in `~/.claude/settings.json`,
-pointing at the installed paths.
+`stop-context-guard.py` imports six sibling modules from its own directory
+(`checkpoint_protocol.py`, `checkpoint_stub.py`, `subagent_spend.py`,
+`thresholds.py`, `transcript_lines.py`, `transcript_scan.py`) and
+`subagent-tracker.py` imports the shared core from the sibling `tools/`
+directory — keep the whole set together. Then register the `Stop` /
+`SubagentStop` entries (see
+`hooks/hooks.json`) in `~/.claude/settings.json`, pointing at the installed
+paths.
 
 ## License
 
