@@ -3,11 +3,11 @@
 import fcntl
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -17,11 +17,11 @@ PLUGIN = ROOT / "plugins/disk-hygiene"
 HOOKS = PLUGIN / "hooks"
 sys.path.insert(0, str(HOOKS))
 
-import cleanup_hooks  # noqa: E402
-import cleanup_intake  # noqa: E402
-import cleanup_registry  # noqa: E402
-import host_cleanup  # noqa: E402
-import session_purge  # noqa: E402
+import cleanup_hooks
+import cleanup_intake
+import cleanup_registry
+import host_cleanup
+import session_purge
 
 SID = "3824c7e3-e1e4-4a30-942d-0d65f2f78745"
 
@@ -109,7 +109,7 @@ def test_false_positive_does_not_purge_the_live_session(tmp_path, monkeypatch):
 
 def holder(lock_path, seconds):
     """Hold the ledger lock from another thread's file descriptor."""
-    handle = open(lock_path, "a+")
+    handle = open(lock_path, "a+")  # noqa: SIM115 - held until the release thread ends
     fcntl.flock(handle, fcntl.LOCK_EX)
 
     def release():
@@ -139,9 +139,11 @@ def test_registry_gives_up_with_a_protected_error_after_the_bound(
     monkeypatch.setattr(cleanup_registry, "LOCK_WAIT_SECONDS", 0.2)
     ledger = tmp_path / "ledger.json"
     thread = holder(str(ledger) + ".lock", 0.8)
-    with pytest.raises(cleanup_registry.Protected, match="ledger busy"):
-        with cleanup_registry.registry(ledger):
-            pass
+    with (
+        pytest.raises(cleanup_registry.Protected, match="ledger busy"),
+        cleanup_registry.registry(ledger),
+    ):
+        pass
     thread.join()
 
 
@@ -174,6 +176,7 @@ def run_cli(tmp_path, *argv, stdin="", extra=None):
         env=env,
         cwd=tmp_path,
         timeout=30,
+        check=False,
     )
 
 
@@ -260,7 +263,7 @@ def test_checkpoint_follows_the_transcript_policy(tmp_path, monkeypatch):
     checkpoint.parent.mkdir(parents=True)
     checkpoint.write_text("resume material")
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
-    guard = lambda path: None  # noqa: E731
+    guard = lambda path: None
     monkeypatch.setenv("DISK_HYGIENE_TRANSCRIPTS", "keep")
     session_purge.purge_ended((home, root), SID, guard, wait=lambda: True)
     assert checkpoint.read_text() == "resume material"

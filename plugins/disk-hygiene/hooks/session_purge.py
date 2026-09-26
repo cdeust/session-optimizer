@@ -9,13 +9,13 @@ recreate its tasks directory until its process exits.
 """
 
 import os
-
-import transcript_policy
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import time
+from pathlib import Path
+
+import transcript_policy
 
 # source: native host UUID session identifiers; disk-hygiene design.
 SESSION_ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
@@ -142,6 +142,7 @@ def reader_running():
             text=True,
             capture_output=True,
             timeout=5,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
         return True  # Unknown counts as running; the bound still applies.
@@ -200,6 +201,7 @@ def host_pid(pid=None):
                 text=True,
                 capture_output=True,
                 timeout=5,
+                check=False,
             ).stdout.split(None, 1)
         except (OSError, subprocess.TimeoutExpired):
             return None

@@ -2,17 +2,17 @@
 
 import json
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
-import test_worktree_cleanup as base
 import cleanup_hooks as hooks
 import cleanup_intake
-import disk_hygiene
 import cleanup_operations as h
+import disk_hygiene
+import test_worktree_cleanup as base
 from cleanup_registry import Protected, registry
 
 
@@ -44,13 +44,15 @@ class LifecycleTests(base.CleanupTests):
 
     def test_end_is_durable_without_subprocess(self):
         ledger = self.root / "registry.json"
-        with patch.object(
-            h.subprocess, "run", side_effect=AssertionError("no subprocess on end")
+        with (
+            patch.object(
+                h.subprocess, "run", side_effect=AssertionError("no subprocess on end")
+            ),
+            registry(ledger) as state,
         ):
-            with registry(ledger) as state:
-                hooks.hook_result(
-                    state, self.owner, SimpleNamespace(event="SessionEnd"), {}
-                )
+            hooks.hook_result(
+                state, self.owner, SimpleNamespace(event="SessionEnd"), {}
+            )
         self.assertTrue(json.loads(ledger.read_text())["_ended"][self.owner])
 
     def test_pending_branch_retry_survives_ledger_reload(self):
@@ -86,9 +88,11 @@ class LifecycleTests(base.CleanupTests):
         self.assertTrue(Path(self.path).exists())
 
     def test_unavailable_lsof_fails_closed(self):
-        with patch.object(h.subprocess, "run", side_effect=FileNotFoundError("lsof")):
-            with self.assertRaises(Protected):
-                h.no_open_files(self.path)
+        with (
+            patch.object(h.subprocess, "run", side_effect=FileNotFoundError("lsof")),
+            self.assertRaises(Protected),
+        ):
+            h.no_open_files(self.path)
 
     def test_malformed_ledger_is_not_replaced(self):
         ledger = self.root / "registry.json"

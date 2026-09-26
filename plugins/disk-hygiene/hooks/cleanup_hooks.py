@@ -2,9 +2,9 @@
 
 # Source: disk-hygiene design: explicit owner markers, no inferred ownership or host file sweep.
 import json
-from pathlib import Path
 import re
 import shlex
+from pathlib import Path
 
 from cleanup_operations import Protected, dispose, trees
 

@@ -5,9 +5,9 @@ source: disk-hygiene design . Unique event files cannot overwrite another hook's
 
 import json
 import os
-from pathlib import Path
 import sys
 import uuid
+from pathlib import Path
 
 from cleanup_registry import Protected, save
 

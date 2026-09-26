@@ -1,15 +1,14 @@
 """Shared manifest commands and Codex safety regressions. source: disk-hygiene design"""
 
-import importlib
 import hashlib
+import importlib
 import json
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins/disk-hygiene"
@@ -85,6 +84,7 @@ def test_exact_manifest_command_accepts_native_payload(isolated, tmp_path, host,
         ),
         env=dict(os.environ),
         timeout=30,
+        check=False,
     )
     assert result.returncode == 0, result.stderr + result.stdout
     output = json.loads(result.stdout)

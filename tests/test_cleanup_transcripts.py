@@ -12,13 +12,6 @@ SID = "1824c7e3-e1e4-4a30-942d-0d65f2f78745"
 OTHER = "2824c7e3-e1e4-4a30-942d-0d65f2f78745"
 
 
-@pytest.fixture
-def purgers(monkeypatch):
-    monkeypatch.syspath_prepend(str(SCRIPTS))
-    monkeypatch.delenv("DISK_HYGIENE_TRANSCRIPTS", raising=False)
-    return tuple(importlib.import_module(n) for n in ("session_purge", "codex_purge"))
-
-
 def artifact(root, path, content="retained transcript"):
     target = root / path
     target.parent.mkdir(parents=True, exist_ok=True)

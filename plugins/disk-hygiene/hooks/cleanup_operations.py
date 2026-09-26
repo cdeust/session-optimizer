@@ -2,22 +2,22 @@
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
 import uuid
+from pathlib import Path
 
-from cleanup_registry import Protected
 from cleanup_processes import no_open_files
+from cleanup_registry import Protected
 
 
 def run(argv, cwd=None):
     # Operational timeout, not a cleanup eligibility threshold.
     try:
         result = subprocess.run(
-            argv, cwd=cwd, text=True, capture_output=True, timeout=30
+            argv, cwd=cwd, text=True, capture_output=True, timeout=30, check=False
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Protected(f"command unavailable: {argv[0]}: {exc}") from exc

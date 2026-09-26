@@ -8,12 +8,10 @@ Only explicitly ended session IDs enter the retry ledger.
 import hashlib
 import json
 import os
-
-import transcript_policy
 from pathlib import Path
 
 import session_purge
-
+import transcript_policy
 
 ARTIFACTS = (
     "shell_snapshots/{sid}.*.sh",

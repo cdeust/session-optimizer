@@ -5,24 +5,24 @@
 import argparse
 import json
 import os
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
-from cleanup_registry import Protected, registry
-from cleanup_operations import (
-    register_worktree,
-    owned,
-    validate_pr,
-    create_temp,
-    preserve,
-    dispose,
-)
-from cleanup_hooks import hook_result, pushed
-from cleanup_switch import cleanup_enabled
 import cleanup_intake
 import host_cleanup
 import transcript_policy
+from cleanup_hooks import hook_result, pushed
+from cleanup_operations import (
+    create_temp,
+    dispose,
+    owned,
+    preserve,
+    register_worktree,
+    validate_pr,
+)
+from cleanup_registry import Protected, registry
+from cleanup_switch import cleanup_enabled
 
 
 def parse_args():

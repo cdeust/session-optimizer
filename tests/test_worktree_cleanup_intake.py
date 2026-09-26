@@ -5,23 +5,23 @@ source: disk-hygiene design: Codex's SessionEnd dispatch has a three-second budg
 
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import time
-from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
 import uuid
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 sys.path.insert(
     0,
     str(Path(__file__).resolve().parents[1] / "plugins/disk-hygiene/hooks"),
 )
 import cleanup_intake as intake
-from cleanup_registry import registry
 import disk_hygiene
+from cleanup_registry import registry
 
 
 class IntakeTests(unittest.TestCase):
@@ -66,6 +66,7 @@ class IntakeTests(unittest.TestCase):
                 text=True,
                 capture_output=True,
                 env=self.env,
+                check=False,
                 timeout=3,  # source: disk-hygiene design (native Codex SessionEnd maximum).
             )
             elapsed = time.monotonic() - started

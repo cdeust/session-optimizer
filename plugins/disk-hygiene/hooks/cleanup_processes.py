@@ -3,6 +3,7 @@
 # Source: disk-hygiene design: lsof ownership guard.
 import os
 import subprocess
+
 from cleanup_registry import Protected
 
 
@@ -11,7 +12,11 @@ def no_open_files(path):
     try:
         scope = ["+D", path] if os.path.isdir(path) else [path]
         result = subprocess.run(
-            ["lsof", "-Fftn", *scope], text=True, capture_output=True, timeout=30
+            ["lsof", "-Fftn", *scope],
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Protected(f"cannot verify active processes: {exc}") from exc

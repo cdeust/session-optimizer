@@ -1,12 +1,12 @@
 """Durable ownership ledger; fail closed on invalid data or unavailable locks."""
 
 # Source: disk-hygiene design: disk-hygiene atomic ledger protocol.
-from contextlib import contextmanager
 import json
 import os
-from pathlib import Path
 import tempfile
 import time
+from contextlib import contextmanager
+from pathlib import Path
 
 if os.name == "nt":
     import msvcrt

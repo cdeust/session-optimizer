@@ -1,10 +1,9 @@
 import json
-from pathlib import Path
+import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
-
-import sys
 
 sys.path.insert(
     0,
@@ -179,9 +178,11 @@ class CleanupTests(unittest.TestCase):
             h.claim({}, str(alias), self.owner, {"kind": "temp"})
 
     def test_active_file_prevents_removal(self):
-        with open(Path(self.path, "open.tmp"), "w"):
-            with self.assertRaises(h.Protected):
-                h.no_open_files(self.path)
+        with (
+            open(Path(self.path, "open.tmp"), "w"),
+            self.assertRaises(h.Protected),
+        ):
+            h.no_open_files(self.path)
 
     def test_no_active_file_is_clear(self):
         h.no_open_files(self.path)

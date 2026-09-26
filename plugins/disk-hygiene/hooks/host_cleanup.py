@@ -1,10 +1,10 @@
 """Wire the existing host-file purgers into the shared hook. source: disk-hygiene design"""
 
-from pathlib import Path
 from functools import partial
+from pathlib import Path
 
-import codex_purge
 import cleanup_intake
+import codex_purge
 import session_purge
 from cleanup_hooks import pushed
 from cleanup_operations import git, no_open_files

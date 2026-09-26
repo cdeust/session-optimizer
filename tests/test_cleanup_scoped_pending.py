@@ -5,15 +5,13 @@ import json
 from types import SimpleNamespace
 
 import pytest
-
 from test_cleanup_transcripts import SID, artifact
-from test_cleanup_transcripts import purgers as purgers
 
 
 def test_claude_host_import_keeps_old_scope_and_new_intake(
     purgers, tmp_path, monkeypatch
 ):
-    claude, _ = purgers
+    _claude, _ = purgers
     hooks = importlib.import_module("host_cleanup")
     intake = importlib.import_module("cleanup_intake")
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "new"))
