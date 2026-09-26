@@ -64,7 +64,7 @@ def _warn_footer(hard: int) -> str:
 
 _DELEGATE_FALLBACK = (
     "Only spawn the memory-writer subagent (Agent tool, subagent_type "
-    "\"memory-writer\", or \"context-guard:memory-writer\") instead if you are "
+    '"memory-writer", or "context-guard:memory-writer") instead if you are '
     "yourself close to the hard cap and want to preserve your own remaining "
     "headroom, or if the direct write below fails.\n"
 )
@@ -73,10 +73,9 @@ _DELEGATE_FALLBACK = (
 def warn_reason(ctx: int, stub_path: str, warn: int, hard: int) -> str:
     """WARN instructions, generic variant: stub-file protocol only."""
     return (
-        _warn_header(ctx, warn, hard)
-        + f"2. Write it directly: fill the stub file at "
-          f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place, "
-          f"replacing its placeholders with the distilled summary. "
+        _warn_header(ctx, warn, hard) + f"2. Write it directly: fill the stub file at "
+        f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place, "
+        f"replacing its placeholders with the distilled summary. "
         + _DELEGATE_FALLBACK
         + _warn_footer(hard)
     )
@@ -87,11 +86,11 @@ def warn_reason_scoped(ctx: int, stub_path: str, warn: int, hard: int) -> str:
     return (
         _warn_header(ctx, warn, hard)
         + f"2. Write it directly: MEMORY_AGENT_ID=<your-scope> "
-          f"tools/memory-tool.sh rethink /memories/<your-scope>/checkpoint.md "
-          f"\"<distilled summary>\", plus one remember call per WHY-level fact "
-          f"(agent_topic-scoped) — or, if the scoped store is unreachable, fill "
-          f"the stub file at "
-          f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place. "
+        f"tools/memory-tool.sh rethink /memories/<your-scope>/checkpoint.md "
+        f'"<distilled summary>", plus one remember call per WHY-level fact '
+        f"(agent_topic-scoped) — or, if the scoped store is unreachable, fill "
+        f"the stub file at "
+        f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place. "
         + _DELEGATE_FALLBACK
         + _warn_footer(hard)
     )
@@ -123,13 +122,12 @@ def block_reason(ctx: int, stub_path: str, hard: int) -> str:
     return (
         _block_header(ctx, hard)
         + f"1. Write (or update) your semantic checkpoint ({SCHEMA}) by filling "
-          f"the stub file at "
-          f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place. "
-          f"If the WARN-time memory-writer already wrote it, update only what "
-          f"changed since.\n"
-          f"2. If important decisions are not yet durable, fold them into the "
-          f"checkpoint's errors-and-fixes section.\n"
-        + _BLOCK_FOOTER
+        f"the stub file at "
+        f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place. "
+        f"If the WARN-time memory-writer already wrote it, update only what "
+        f"changed since.\n"
+        f"2. If important decisions are not yet durable, fold them into the "
+        f"checkpoint's errors-and-fixes section.\n" + _BLOCK_FOOTER
     )
 
 
@@ -138,15 +136,14 @@ def block_reason_scoped(ctx: int, stub_path: str, hard: int) -> str:
     return (
         _block_header(ctx, hard)
         + f"1. Write (or update) your semantic checkpoint ({SCHEMA}): "
-          f"MEMORY_AGENT_ID=<your-scope> tools/memory-tool.sh rethink "
-          f"/memories/<your-scope>/checkpoint.md — if the scoped store is "
-          f"unreachable, fill the stub file at "
-          f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place. "
-          f"If the WARN-time memory-writer already wrote it, update only what "
-          f"changed since.\n"
-          f"2. If important decisions are not yet durable, persist them now via "
-          f"the store's remember endpoint (scoped to your agent_topic); "
-          f"otherwise fold them into the checkpoint's errors-and-fixes "
-          f"section.\n"
-        + _BLOCK_FOOTER
+        f"MEMORY_AGENT_ID=<your-scope> tools/memory-tool.sh rethink "
+        f"/memories/<your-scope>/checkpoint.md — if the scoped store is "
+        f"unreachable, fill the stub file at "
+        f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place. "
+        f"If the WARN-time memory-writer already wrote it, update only what "
+        f"changed since.\n"
+        f"2. If important decisions are not yet durable, persist them now via "
+        f"the store's remember endpoint (scoped to your agent_topic); "
+        f"otherwise fold them into the checkpoint's errors-and-fixes "
+        f"section.\n" + _BLOCK_FOOTER
     )
