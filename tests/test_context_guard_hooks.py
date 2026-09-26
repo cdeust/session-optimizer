@@ -5,6 +5,9 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
+import re
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,6 +18,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 HOOKS = ROOT / "plugins" / "context-guard" / "hooks"
 TOOLS = ROOT / "plugins" / "context-guard" / "tools"
+PLUGIN_ROOT = ROOT / "plugins" / "context-guard"
+README = PLUGIN_ROOT / "README.md"
 
 
 def _load(name: str, path: Path):
@@ -293,3 +298,95 @@ def test_tracker_malformed_input_is_nonfatal(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         tracker.main()
     assert exc.value.code == 0
+
+
+def _extract_fenced_bash_block(heading: str) -> str:
+    """Extract the exact ```bash fenced block that follows `heading` in the
+    context-guard README. Reads the README fresh each call so the test always
+    exercises the documented command, never a copy of it."""
+    text = README.read_text(encoding="utf-8")
+    heading_at = text.index(heading)
+    fence_start = text.index("```bash", heading_at)
+    body_start = text.index("\n", fence_start) + 1
+    fence_end = text.index("```", body_start)
+    return text[body_start:fence_end]
+
+
+def _run_readme_snippet(script: str, fake_home: Path) -> str:
+    """Run a README bash snippet as a real subprocess from the plugin root,
+    with HOME sandboxed to `fake_home`. Returns captured stdout.
+
+    The snippet's own trailing cleanup commands (rm -f/-rf) always exit 0, so
+    the process return code cannot distinguish a working guard from a guard
+    that emitted nothing on stdin -- only the captured stdout can.
+    """
+    proc = subprocess.run(
+        ["bash", "-c", script],
+        cwd=str(PLUGIN_ROOT),
+        env={**os.environ, "HOME": str(fake_home)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return proc.stdout
+
+
+def test_readme_test_the_guard_snippet_fires_block_on_first_and_second_run(tmp_path):
+    """External gate for the Stop-guard smoke test documented in README.md
+    under '### Test the guard'. Reproduces the documented command exactly
+    (parsed from the README file, not duplicated as a literal string) and
+    asserts it actually produces `decision: block`, twice in a row -- proving
+    the fire-once state file does not silence the second demonstration."""
+    script = _extract_fenced_bash_block("### Test the guard")
+
+    # The snippet is self-sandboxing (it creates and later removes its own
+    # throwaway HOME internally); the outer HOME below is a second, unrelated
+    # safety net in case the snippet regresses and stops sandboxing itself.
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+
+    real_checkpoint = (
+        Path(os.path.expanduser("~")) / ".claude" / "memories" / "checkpoints" / "latest.md"
+    )
+    before_mtime = real_checkpoint.stat().st_mtime if real_checkpoint.exists() else None
+
+    first_stdout = _run_readme_snippet(script, fake_home)
+    assert first_stdout.strip(), (
+        "README 'Test the guard' snippet produced no output on its first run "
+        "(the activity gate silently ate it) -- expected a decision:block payload"
+    )
+    first = json.loads(first_stdout)
+    assert first["decision"] == "block"
+
+    second_stdout = _run_readme_snippet(script, fake_home)
+    assert second_stdout.strip(), (
+        "README 'Test the guard' snippet produced no output on its second run "
+        "-- the fire-once state file silenced a repeat demonstration"
+    )
+    second = json.loads(second_stdout)
+    assert second["decision"] == "block"
+
+    # The snippet must not have touched the user's real checkpoint file.
+    after_mtime = real_checkpoint.stat().st_mtime if real_checkpoint.exists() else None
+    assert after_mtime == before_mtime, (
+        "README 'Test the guard' snippet wrote to the user's real "
+        "~/.claude/memories/checkpoints/latest.md instead of a sandboxed HOME"
+    )
+    assert "FAKE_HOME" in script and "HOME=" in script, (
+        "README snippet must sandbox HOME so it cannot overwrite the user's "
+        "real checkpoint file"
+    )
+    assert re.search(r"rm\s+-f\s+.*zetetic-ctxguard-", script), (
+        "README snippet must clean up its fire-once state file so a repeat "
+        "run of the exact same snippet (fixed session_id) still fires"
+    )
+
+
+def test_readme_test_the_tracker_snippet_cleans_up_its_state_file():
+    """The tracker smoke test writes /tmp/zetetic-subagents-<SID>.json; the
+    documented snippet must remove it afterward instead of leaving stray
+    state files in a shared temp directory."""
+    script = _extract_fenced_bash_block("### Test the tracker")
+    assert re.search(r"rm\s+-f\s+.*zetetic-subagents-", script), (
+        "README 'Test the tracker' snippet does not clean up its state file"
+    )
