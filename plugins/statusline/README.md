@@ -50,6 +50,9 @@ A `SessionStart` hook runs the same script in `sync` mode after
   state/                              everything written at runtime
     costs.jsonl                       the ledger (+ .lock, .cleanup-stamp while running)
     sessions/<session>.main|.sub      per-session price caches, 30-day retention
+    sessions/<session>.snapshot.json  the stdin JSON, verbatim; written each
+                                      render; removed with the session's
+                                      other state files
     transcript-cache.json             telemetry cache
     backup/<timestamp>/               superseded files, newest 3 runs kept
 ~/.claude/ctxguard-thresholds.json    shared with context-guard: stays at the root
@@ -61,6 +64,21 @@ is Claude Code's. Earlier releases put every one of those files flat at that roo
 moving files rather than copying them. `STATUSLINE_STATE_DIR` relocates the
 state directory, `STATUSLINE_COST_LOG` the ledger alone (its per-session
 caches follow it into a `sessions/` directory beside it).
+
+## Session snapshot for external readers
+
+`state/sessions/<session_id>.snapshot.json` is the exact statusLine JSON this
+renderer received on its last refresh, byte for byte — no reshaping, no
+subset. A reader outside this renderer (a Stream Deck plugin, a second
+dashboard) can open it directly and get `context_window.used_percentage`,
+`rate_limits.five_hour`/`seven_day`, `cost.total_cost_usd`,
+`model.display_name` and anything else the host sends, without re-deriving
+any of it or spawning this script itself. Written on every render when
+`session_id` is present and safe (rejects any id containing `/` or `..`;
+every Claude Code session id, a UUID, qualifies); the write is atomic (a
+same-directory temp file, then `mv`) so a reader never observes a partial
+file, and a write failure never blocks or slows the render. Removed with the
+session's other files under `sessions/` when the session ends.
 
 ## Files (bundled under `assets/`)
 

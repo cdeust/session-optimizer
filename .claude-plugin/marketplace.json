@@ -58,8 +58,8 @@
     {
       "name": "statusline",
       "source": "./plugins/statusline",
-      "description": "Multi-line status bar: a discrete heat-track context bar tied to per-model checkpoint thresholds (shared with context-guard), one deduplicated cost ledger that prices each session from its own transcript plus its subagents, 5h/7d rate-limit gauges with burn-rate pacing (the projection of usage at reset, not just the percentage), per-session telemetry (tok/s, compactions, prompt-cache countdown), and terminal-width fitting that drops the lowest-priority segments instead of letting the host truncate. Words, not emoji. Ships an install skill.",
-      "version": "2.2.0",
+      "description": "Multi-line status bar: a discrete heat-track context bar tied to per-model checkpoint thresholds (shared with context-guard), one deduplicated cost ledger that prices each session from its own transcript plus its subagents, 5h/7d rate-limit gauges with burn-rate pacing (the projection of usage at reset, not just the percentage), per-session telemetry (tok/s, compactions, prompt-cache countdown), terminal-width fitting that drops the lowest-priority segments instead of letting the host truncate, and a verbatim per-session JSON snapshot on disk for external readers (e.g. a Stream Deck plugin). Words, not emoji. Ships an install skill.",
+      "version": "2.3.0",
       "author": {
         "name": "Clement Deust",
         "email": "admin@ai-architect.tools"

@@ -82,6 +82,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unhandled `AttributeError`, contradicting the hook's own "never fail
   hard" contract.
 
+### statusline 2.3.0
+
+#### Added
+
+- **Verbatim per-session JSON snapshot for external readers.**
+  `state/sessions/<session_id>.snapshot.json` now holds the exact statusLine
+  stdin payload from the renderer's last refresh, byte for byte, so a reader
+  outside this renderer (a Stream Deck plugin, a second dashboard) can read
+  `context_window.used_percentage`, `rate_limits.five_hour`/`seven_day`,
+  `cost.total_cost_usd`, `model.display_name`, etc. without re-deriving them
+  or invoking the script itself. `write_session_snapshot`
+  (`lib/session_state.sh`) writes only when `session_id` is non-empty and
+  matches `[A-Za-z0-9_-]+` (rejects any id carrying `/` or `..`; every Claude
+  Code session id, a UUID, qualifies), atomically (same-directory temp file,
+  then `mv`), and never blocks or slows the render on a bad id or a disk
+  error. `statusline-command.sh` now captures stdin with the trailing bytes
+  preserved (`input=$(cat)` alone strips trailing newlines) so "verbatim"
+  is literal. Tests: `tests/statusline/test_session_snapshot.sh` (byte
+  identity, trailing-newline preservation, atomicity, traversal-id
+  rejection, and that a write failure never changes the renderer's stdout).
+
 ## [2.3.0] - 2026-09-10
 
 Statusline only for what shipped under this tag intentionally, but this
