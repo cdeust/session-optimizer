@@ -28,11 +28,13 @@ def read_summary(state_dir: str, session_id: str):
         + int(totals.get("output_tokens", 0) or 0)
         + int(totals.get("cache_tokens", 0) or 0)
     )
-    cost = float(totals.get("cost_usd", 0.0) or 0.0)
+    tokens = int(totals.get("billed_tokens", tokens))
+    raw_cost = totals.get("cost_usd", 0.0)
+    cost = None if raw_cost is None else float(raw_cost or 0.0)
     return count, tokens, cost
 
 
-def render_spend_line(count: int, tokens: int, cost: float) -> str:
+def render_spend_line(count: int, tokens: int, cost: float | None) -> str:
     """One-line subagent-spend note for checkpoint systemMessages, or "" if
     there was no subagent spend."""
     if count <= 0:
@@ -40,16 +42,17 @@ def render_spend_line(count: int, tokens: int, cost: float) -> str:
     return (
         f"\nSubagent spend this session (not in the main-thread context "
         f"measure above): {count} runs, ~{tokens:,} billed tokens, "
-        f"~${cost:.2f}."
+        + ("cost unavailable." if cost is None else f"~${cost:.2f}.")
     )
 
 
-def render_stub_bullet(count: int, tokens: int, cost: float) -> str:
+def render_stub_bullet(count: int, tokens: int, cost: float | None) -> str:
     """The checkpoint stub's "subagent spend" bullet, or "" if there was
     none."""
     if count <= 0:
         return ""
     return (
         f"- subagent spend: {count} runs · ~{tokens:,} billed tokens · "
-        f"~${cost:.2f} (separate from the context tokens above)\n"
+        + ("cost unavailable" if cost is None else f"~${cost:.2f}")
+        + " (separate from the context tokens above)\n"
     )

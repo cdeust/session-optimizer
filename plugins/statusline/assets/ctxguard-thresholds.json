@@ -5,7 +5,8 @@
     { "match": "mythos", "warn": 120000, "hard": 160000 },
     { "match": "haiku",  "warn": 120000, "hard": 170000 },
     { "match": "sonnet", "warn": 180000, "hard": 200000 },
-    { "match": "opus",   "warn": 180000, "hard": 200000 }
+    { "match": "opus",   "warn": 180000, "hard": 200000 },
+    { "match": "astra",  "warn": 180000, "hard": 220000 }
   ],
   "default": { "warn": 180000, "hard": 200000 }
 }

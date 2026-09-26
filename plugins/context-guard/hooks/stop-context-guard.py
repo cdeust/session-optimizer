@@ -107,6 +107,7 @@ def _thresholds(model_id: str):
     Postcondition: warn < hard, both positive ints.
     """
     table = thresholds_mod.load_table(CONFIG_PATH, FALLBACK_THRESHOLDS)
+    table = thresholds_mod.upgrade_bundled_table(table, FALLBACK_THRESHOLDS)
     entry = thresholds_mod.matching_entry(
         table, model_id, FALLBACK_THRESHOLDS["default"]
     )

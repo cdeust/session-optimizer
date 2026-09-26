@@ -14,24 +14,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Codex support.** The `Stop` guard now runs unmodified on Codex
   (codex-cli 0.157.1): host detection peeks the transcript's first JSONL
   record (`type == "session_meta"` -> Codex reader, anything else -> the
-  pre-existing Claude path, byte-identical). Two new sibling modules —
+  pre-existing Claude path, byte-identical). Two new sibling modules,
   `transcript_codex.py` (Codex line predicates: `token_usage_record.usage.
   input_tokens` as context size, `function_call`/`custom_tool_call` as the
   activity-gate equivalent of `tool_use`) and `host_detect.py` (the
-  session_meta peek) — plus `usage_reader.py`, which extracts the two
+  session_meta peek), plus `usage_reader.py`, which extracts the two
   transcript reads' I/O orchestration out of `stop-context-guard.py` (host-
   dispatched, shared bounded scan) so that file shrinks instead of growing.
   A new per-model threshold row (`gpt-6-astra`: warn 180K / hard 220K,
   measured window 258,400) and four new `checkpoint_protocol.py` variants
-  (`*_codex[_scoped]`) that drop the memory-writer-subagent delegate offer —
-  no such tool is verified to exist on Codex, so the model always writes the
-  checkpoint stub itself. The `SubagentStop` tracker needed no change: its
-  own `agent-*.jsonl` filename convention already no-ops cleanly against a
-  Codex `agent_transcript_path`. Every fact this integration relies on
+  (`*_codex[_scoped]`) that drop the memory-writer-subagent delegate offer,
+  the Codex parent writes the checkpoint directly; Claude's plugin-defined
+  memory-writer agent type is not assumed available. The `SubagentStop` tracker now reads Codex child
+  transcripts and cumulative usage, with cached input counted once and
+  unknown dollar cost reported as unavailable. Every fact this integration relies on
   (hook payload schema, blocking-output contract, token semantics, activity
   predicate, context-window size, `hooks/hooks.json` reuse) is cited at its
   primary source in `plugins/context-guard/README.md`'s "Codex support"
-  table — extracted from the `codex` binary's own embedded JSON Schemas and
+  table, extracted from the `codex` binary's own embedded JSON Schemas and
   a real `~/.codex/sessions/**/*.jsonl` rollout, not from documentation.
   Packaging: `.agents/plugins/marketplace.json` now lists context-guard
   (`session-optimizer-codex` marketplace), and
@@ -40,9 +40,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- Upgrade the unchanged pre-Codex threshold table to include Astra while
+  preserving custom model rows and defaults. Add Astra to the bundled
+  statusline table.
+- Document hook trust after Codex installation and verify the native
+  app-server Stop lifecycle through a blocked stop, model-written
+  checkpoint and subsequent clean completion.
+
 - **The README's "Test the guard" smoke test now actually demonstrates a
   block.** Since [20213dc](https://github.com/cdeust/session-optimizer/commit/20213dc)
-  (an ancestor of the `v2.3.0` tag below, undocumented until now — see the
+  (an ancestor of the `v2.3.0` tag below, undocumented until now, see the
   provenance note on that section) the Stop guard's activity gate
   (`_has_activity_since`) requires at least one `tool_use` content block in
   the transcript before it will fire. The documented snippet's transcript
@@ -64,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`stop-context-guard.py` and `subagent-tracker.py` refactored,
   behavior-preserving**, to bring every function under the project's size
   limits (50 lines / 4 params / nesting depth 3) and the file itself under
-  500 lines (580 lines pre-existing — a violation that predates this
+  500 lines (580 lines pre-existing, a violation that predates this
   release). Three new sibling modules split out reusable concerns:
   `thresholds.py` (per-model config-table lookup), `transcript_lines.py`
   (JSONL line-content predicates), `transcript_scan.py` (the bounded
@@ -77,7 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.3.0] - 2026-09-10
 
-Statusline only for what shipped under this tag intentionally — but this
+Statusline only for what shipped under this tag intentionally, but this
 section's original text ("No change to context-guard or refine-gate") was
 wrong: [20213dc](https://github.com/cdeust/session-optimizer/commit/20213dc)
 (the Stop guard's activity gate) is an ancestor of the `v2.3.0` tag and was
@@ -152,7 +159,7 @@ Provenance note: this release also carries every change recorded under the
 **[2.1.0]** and **[2.1.1]** sections below, including the `statusline-costs.py`
 removal and renderer-directory **BREAKING** change from [2.1.0]. Those two
 sections were written in-tree with a date but were never tagged or published
-as a release — no `v2.1.0` or `v2.1.1` git tag exists. `v2.0.0` (2026-07-23)
+as a release, no `v2.1.0` or `v2.1.1` git tag exists. `v2.0.0` (2026-07-23)
 was the release preceding this one; `v2.2.0` (2026-08-03) is where those
 changes first actually shipped.
 
@@ -198,7 +205,7 @@ changes first actually shipped.
 
 **Never tagged.** This date records when the work landed in-tree; no `v2.1.1`
 git tag or release artifact was ever cut. The changes below first shipped
-under `v2.2.0` — see the provenance note on that section.
+under `v2.2.0`, see the provenance note on that section.
 
 Statusline only. No change to context-guard or refine-gate.
 
@@ -218,7 +225,7 @@ Statusline only. No change to context-guard or refine-gate.
 - **`$COLUMNS` is consulted before the controlling tty.** The host sets it to the
   width it renders into, which is the authority; the tty probe stays as the
   fallback for hand-run invocations. Under the host the tty probe answers nothing
-  at all — there is no controlling terminal in the hook environment.
+  at all, there is no controlling terminal in the hook environment.
 
 ### Notes
 
@@ -230,7 +237,7 @@ Statusline only. No change to context-guard or refine-gate.
 - `test_perf_heat_rgb_20run_avg` was flaky (~4 runs in 10) and asserted nothing:
   it compared one sample of `heat_rgb` against the mean of twenty more of the
   same call, so the delta was noise around zero, and per-sample `date +%s%N`
-  forks vary by ~19 ms on the measurement host — four times the 5 ms budget
+  forks vary by ~19 ms on the measurement host, four times the 5 ms budget
   being asserted. It now times a block of 2000 calls against an equally-sized
   no-op control, amortizing the fork: `heat_rgb` measures 0.13 ms above the
   control against the same 5 ms budget.
@@ -239,7 +246,7 @@ Statusline only. No change to context-guard or refine-gate.
 
 **Never tagged.** This date records when the work landed in-tree; no `v2.1.0`
 git tag or release artifact was ever cut. The BREAKING change below first
-shipped under `v2.2.0` — see the provenance note on that section.
+shipped under `v2.2.0`, see the provenance note on that section.
 
 Statusline only. No change to context-guard or refine-gate.
 
@@ -253,7 +260,7 @@ Statusline only. No change to context-guard or refine-gate.
   `message.id:requestId` before pricing. Measured over 172 local transcripts:
   $3438.84 deduped vs $7645.04 raw. `costs.sh` also prices the full recursive
   `<transcript>/subagents/` subtree, so Task, worktree-isolated and workflow
-  agents are all billed — none of them appear in Claude Code's own
+  agents are all billed, none of them appear in Claude Code's own
   `.cost.total_cost_usd`. Installs carrying a stale `~/.claude/statusline-costs.py`
   should delete it; the SessionStart hook now does so.
 - **The renderer ships as a directory.** `statusline-command.sh` is a
@@ -265,7 +272,7 @@ Statusline only. No change to context-guard or refine-gate.
 
 - `costs.sh` + `pricing.json` as bundled assets (the ledger and its prices).
 - Terminal-width fitting: each line is held to 85% of the probed width, and
-  `fit_line` drops whole trailing segments — lowest priority first — rather
+  `fit_line` drops whole trailing segments, lowest priority first, rather
   than letting the host truncate mid-word and cost the block a row. Width is
   probed from the controlling tty, `$COLUMNS`, then `tput cols` (only when
   stdout is a terminal); `$STATUSLINE_COLS` overrides.
@@ -277,7 +284,7 @@ Statusline only. No change to context-guard or refine-gate.
   exactly on the cap). The percentage carries the worse of the absolute and
   pace severities; the pace figure carries its own. Nothing is printed below
   10% of the window elapsed, where the extrapolation is not informative.
-- Tests: `tests/statusline/test_fit_and_pace.sh` (46 tests — fitting, pace,
+- Tests: `tests/statusline/test_fit_and_pace.sh` (46 tests, fitting, pace,
   severity, the width probe, preset resolution, the module loader's failure
   path, and the §4.1 size cap), `tests/statusline/measure_widths.sh`
   (per-preset width measurement).
@@ -306,7 +313,7 @@ Statusline only. No change to context-guard or refine-gate.
   an unquoted non-numeric token as an uninitialised variable. Values are now
   validated before awk sees them.
 - `tput cols` returns terminfo's blind 80 when stdout is a pipe, which is how
-  the host captures the renderer — it is now consulted only when stdout is a
+  the host captures the renderer, it is now consulted only when stdout is a
   terminal, so IDE and web sessions no longer silently downgrade.
 - A non-numeric `$STATUSLINE_COLS` was printed straight through, breaking every
   arithmetic width comparison downstream. The override is an escape hatch, not
@@ -322,12 +329,12 @@ Statusline only. No change to context-guard or refine-gate.
 
 - The monolithic `session-optimizer` plugin is split into three
   independently installable plugins, shipped from the same marketplace:
-  - **context-guard** — `Stop`-hook context budget with a per-model
+  - **context-guard**, `Stop`-hook context budget with a per-model
     checkpoint protocol, budgeted `memory-writer` checkpoint subagent, and
     a `SubagentStop` spend tracker.
-  - **refine-gate** — `UserPromptSubmit` prompt-binding gate + `/refine`
+  - **refine-gate**, `UserPromptSubmit` prompt-binding gate + `/refine`
     skill.
-  - **statusline** — multi-line status bar with RGB-gradient context bars,
+  - **statusline**, multi-line status bar with RGB-gradient context bars,
     cost tracking, telemetry, and rate-limit gauges.
 - The root `session-optimizer` plugin remains **only as a deprecation
   shim**: it registers no functional hooks and just announces the
@@ -361,7 +368,7 @@ Statusline only. No change to context-guard or refine-gate.
    `refine-gate`, `statusline`.
 2. Uninstall the old plugin: `/plugin uninstall session-optimizer`.
 3. Your `~/.claude/ctxguard-thresholds.json`, checkpoint files, and
-   statusline config are untouched — the new plugins read the same paths.
+   statusline config are untouched, the new plugins read the same paths.
 4. If you had installed the `memory-writer` agent manually into
    `~/.claude/agents/`, you can remove it; context-guard ships its own
    copy (`context-guard:memory-writer`).

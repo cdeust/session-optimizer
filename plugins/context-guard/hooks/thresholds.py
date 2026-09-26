@@ -25,6 +25,19 @@ def load_table(config_path: str, fallback: dict) -> dict:
     return fallback
 
 
+def upgrade_bundled_table(table: dict, fallback: dict) -> dict:
+    """Upgrade only the unchanged pre-Codex bundled table.
+
+    Source: plugins/statusline/assets/ctxguard-thresholds.json before 2.1.0.
+    Custom rows or a custom default are user policy and remain authoritative.
+    Ignore descriptive metadata when comparing the shipped policy.
+    """
+    legacy = [row for row in fallback["models"] if row["match"] != "astra"]
+    if table.get("models") == legacy and table.get("default") == fallback["default"]:
+        return {**table, "models": fallback["models"]}
+    return table
+
+
 def matching_entry(table: dict, model_id: str, fallback_default: dict) -> dict:
     """First model entry whose "match" substring is in the lowercased
     model_id, else the table's own "default" entry (itself possibly

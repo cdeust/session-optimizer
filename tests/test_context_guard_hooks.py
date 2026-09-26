@@ -640,7 +640,10 @@ def test_guard_main_warn_and_hard_payloads(monkeypatch):
     assert "MEMORY_AGENT_ID" in hard["reason"]
 
 
-def test_tracker_helpers_and_main_sweep(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "child_path_field", ["transcript_path", "agent_transcript_path"]
+)
+def test_tracker_helpers_and_main_sweep(tmp_path, monkeypatch, child_path_field):
     monkeypatch.setattr(
         tracker, "_state_path", lambda sid: str(tmp_path / f"{sid}.json")
     )
@@ -684,7 +687,7 @@ def test_tracker_helpers_and_main_sweep(tmp_path, monkeypatch):
             json.dumps(
                 {
                     "session_id": "s",
-                    "transcript_path": str(payload_path),
+                    child_path_field: str(payload_path),
                 }
             )
         ),

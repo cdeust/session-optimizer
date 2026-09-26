@@ -3,9 +3,8 @@
 A context-budget guard for long [Claude Code](https://code.claude.com) and
 [Codex](https://github.com/openai/codex) sessions: a `Stop` hook that detects
 when the session crosses a per-model token threshold and *performs the
-checkpoint protocol automatically*, plus a `SubagentStop` tracker (Claude
-Code only) that surfaces the subagent spend the main thread's context
-measurement structurally cannot see.
+checkpoint protocol automatically*. Its `SubagentStop` tracker measures
+child usage on both hosts, separately from the main thread context.
 
 ## Why
 
@@ -40,16 +39,18 @@ codex plugin marketplace add cdeust/session-optimizer
 codex plugin add context-guard@session-optimizer-codex
 ```
 
-Codex reads the same `hooks/hooks.json` file Claude Code does (verified: the
-`Stop`/`SubagentStop` hook entries below are trusted and run against
-`hooks/hooks.json` unmodified — no Codex-specific hooks file exists or is
-needed). The `SubagentStop` tracker is Claude-only: it already no-ops
-cleanly on Codex (its own `agent-*.jsonl` filename convention never matches
-a Codex `agent_transcript_path`), so no behavior needs disabling.
+Codex reads the shared `hooks/hooks.json`. After installing, open `/hooks`
+in Codex and trust the context-guard `Stop` and `SubagentStop` entries.
+An enabled plugin with untrusted hooks does not run them. Start a new
+session after installation so it loads the updated plugin.
 
-## Thresholds — shared with the statusline plugin
+The Codex tracker reads `agent_transcript_path` and reports cumulative
+child tokens. Its dollar cost is shown as unavailable because no verified
+Codex tariff is bundled. Claude pricing remains unchanged.
 
-Thresholds are loaded from `~/.claude/ctxguard-thresholds.json` — a
+## Thresholds, shared with the statusline plugin
+
+Thresholds are loaded from `~/.claude/ctxguard-thresholds.json`, a
 **shared-file convention** with the [statusline](../statusline) plugin, so
 the passive display (bar colors) and the active enforcement (this hook) stay
 on par by construction. The statusline install skill seeds the file; without
@@ -69,58 +70,60 @@ it, this embedded fallback applies:
 }
 ```
 
-First substring match against the lowercased model id wins. "Context tokens"
+First substring match against the lowercased model id wins. An unchanged
+pre-Codex bundled table is upgraded in memory to include Astra. Custom
+tables, including custom defaults, remain authoritative. "Context tokens"
 on Claude are measured exactly as Claude Code's own `used_percentage`:
 `input_tokens + cache_creation_input_tokens + cache_read_input_tokens`. On
 Codex, the most recent rollout `token_usage_record.usage.input_tokens` alone
 (see "Codex support" below for the sourced arithmetic). The 200K soft cap is
-conservative for the 1M-context Opus/Sonnet models — it keeps sessions
+conservative for the 1M-context Opus/Sonnet models, it keeps sessions
 focused and checkpointed rather than letting them sprawl. The `astra` row's
 window (258,400 tokens) was measured directly from a real rollout, not a
-published spec — see the citation table below.
+published spec, see the citation table below.
 
 ## The Stop guard
 
 | Level | Trigger | Action |
 |---|---|---|
-| below WARN | `ctx < threshold` | nothing — silent, no side effects |
-| **WARN** | `ctx ≥ warn` | captures **mechanical state for free** (date, model, token count, branch, last commit, modified files) as a summary-schema stub at `~/.claude/memories/checkpoints/{session_id,latest}.md`, and **blocks the stop exactly once as a reflection pause**: the model distills the session and hands the summary to the `memory-writer` subagent, which merges it into the stub — then the session **continues**. |
-| **HARD** | `ctx ≥ hard` | captures state **and blocks the stop exactly once**, injecting the checkpoint-finalize procedure so the model completes the checkpoint file (normally a formality — the WARN reflection already wrote it) and signals you to `/clear` + resume from the checkpoint. |
+| below WARN | `ctx < threshold` | nothing, silent, no side effects |
+| **WARN** | `ctx ≥ warn` | captures **mechanical state for free** (date, model, token count, branch, last commit, modified files) as a summary-schema stub at `~/.claude/memories/checkpoints/{session_id,latest}.md`, and **blocks the stop exactly once as a reflection pause**: the model distills the session and hands the summary to the `memory-writer` subagent, which merges it into the stub, then the session **continues**. |
+| **HARD** | `ctx ≥ hard` | captures state **and blocks the stop exactly once**, injecting the checkpoint-finalize procedure so the model completes the checkpoint file (normally a formality, the WARN reflection already wrote it) and signals you to `/clear` + resume from the checkpoint. |
 
 ### Safety properties
 
-- **Loop-safe** — honors `stop_hook_active`; each level fires at most once per
+- **Loop-safe**, honors `stop_hook_active`; each level fires at most once per
   session via a `/tmp` state file, so the hard block can never loop.
-- **Non-fatal by construction** — any parse/IO error exits `0`. A `Stop` hook
+- **Non-fatal by construction**, any parse/IO error exits `0`. A `Stop` hook
   must never wedge a session.
 
 ## The memory-writer subagent
 
-The checkpoint itself is written by a **normal Claude Code subagent** —
+The checkpoint itself is written by a **normal Claude Code subagent**,
 `agents/memory-writer.md` (frontmatter: `name`, `description`, `tools`,
 `model`; body = system prompt). The pair follows the
 [letta](https://github.com/letta-ai/letta) sleeptime pattern: a primary agent
 plus a budgeted memory-manager agent on a cheap model (Haiku). The parent
 session distills its own state into the summary schema (goals / file
-references / errors and fixes / current state / next steps, ≤500 words) —
+references / errors and fixes / current state / next steps, ≤500 words),
 spending its expensive context once on distillation, never on persistence
-plumbing — and the memory-writer persists it. It writes exactly what it is
+plumbing, and the memory-writer persists it. It writes exactly what it is
 given and never invents content.
 
 ### Persistence: generic by default, memory layer by detection
 
-- **Default (vanilla Claude Code)** — the agent fills the hook's mechanical
+- **Default (vanilla Claude Code)**, the agent fills the hook's mechanical
   stub in place under `~/.claude/memories/checkpoints/` and mirrors it to
   `latest.md`. No extra tooling required; every instruction the hook emits
   references only tools that exist in vanilla Claude Code.
-- **Scoped memory store (runtime-detected)** — when a scoped memory layer is
+- **Scoped memory store (runtime-detected)**, when a scoped memory layer is
   installed (`tools/memory-tool.sh` in the project root or
   `~/.claude/tools/`), the hook detects it per invocation and switches the
   protocol: the checkpoint goes to the store's working-state block
   (`memory-tool.sh rethink /memories/<scope>/checkpoint.md`) and durable
   WHY-level facts (decisions, rejected approaches, lessons) are stored via
   the store's remember endpoint. Users without the layer never see this
-  wording — graceful extension, not a dependency.
+  wording, graceful extension, not a dependency.
 
 The message composition lives in `hooks/checkpoint_protocol.py`
 (`detect_memory_tool` + one generic and one scoped variant per level).
@@ -143,16 +146,16 @@ the snippet itself:
 
 - The transcript needs **two** lines: an assistant `usage` record (so the
   hook can measure context tokens) and an assistant `tool_use` block (so the
-  activity gate — `_has_activity_since`, added in
-  [20213dc](https://github.com/cdeust/session-optimizer/commit/20213dc)) —
+  activity gate, `_has_activity_since`, added in
+  [20213dc](https://github.com/cdeust/session-optimizer/commit/20213dc)),
   sees real work happened since the last fire and does not skip silently.
 - `SID` must be unique per run (`"demo-$(date +%s)"`), and its fire-once
-  state file (`/tmp/zetetic-ctxguard-$SID.json`) must be removed afterward —
+  state file (`/tmp/zetetic-ctxguard-$SID.json`) must be removed afterward,
   otherwise re-running this exact snippet with a fixed `session_id` produces
   no output on the second and every subsequent run.
 - `HOME` is sandboxed to a throwaway directory for the duration of the
   command (the hook resolves the checkpoint path via
-  `os.path.expanduser("~")`, so `HOME` redirects it) and removed afterward —
+  `os.path.expanduser("~")`, so `HOME` redirects it) and removed afterward,
   without this the snippet overwrites your real
   `~/.claude/memories/checkpoints/latest.md`.
 
@@ -170,7 +173,7 @@ rm -rf "$FAKE_HOME"
 ```
 
 Expected: the same `decision: block` shape as the Claude snippet above, but
-the `reason`/`systemMessage` text never mentions `memory-writer` — the model
+the `reason`/`systemMessage` text never mentions `memory-writer`, the model
 is instructed to write the checkpoint stub itself. Host detection is
 automatic (first transcript line's `"type": "session_meta"`); nothing else
 about the hook's invocation changes.
@@ -179,7 +182,7 @@ about the hook's invocation changes.
 
 The `Stop` guard (and any statusline) only sees the **main thread**. Work
 done by Task-tool subagents is logged as separate per-agent transcripts that
-a parent-only reader never sees — the documented gap in
+a parent-only reader never sees, the documented gap in
 [anthropics/claude-code#32175](https://github.com/anthropics/claude-code/issues/32175)
 and [ryoppippi/ccusage#313](https://github.com/ryoppippi/ccusage/issues/313).
 On disk (verified layout):
@@ -194,19 +197,26 @@ On disk (verified layout):
 
 Three layers recover that data:
 
-- **`SubagentStop` hook** (`hooks/subagent-tracker.py`) — parses each finishing
+- **`SubagentStop` hook** (`hooks/subagent-tracker.py`), parses each finishing
   subagent's transcript (deduped by `message.id`, billed per the record's own
   `message.model`, cache split by TTL), reads the sibling `.meta.json` for
   `agentType`/`description`, and folds it into a per-session aggregate at
   `/tmp/zetetic-subagents-<session_id>.json` (keyed by `agentId`, so re-firing
   updates rather than double-counts).
-- **The [statusline](../statusline) plugin** — reads that aggregate and shows
+- **The [statusline](../statusline) plugin**, reads that aggregate and shows
   `🤖N · tokens · $cost` so live subagent spend is visible alongside the main
   thread (another shared-file convention between the two plugins).
-- **Stop guard** — surfaces cumulative session spend (main + subagents) in the
+- **Stop guard**, surfaces cumulative session spend (main + subagents) in the
   checkpoint message and stub. The context-window *decision* stays
   main-thread-only (mixing in subagent tokens would mis-trigger checkpoints);
   only the reported figure is enriched.
+
+For Codex, the tracker uses the child identity from the first
+`session_meta` and the latest matching `thread_token_usage` counters.
+Cached input is included in input tokens and is counted once. Inherited
+parent records do not replace the child identity. Repeated stops update
+the same entry. `totals.billed_tokens` is the host-aware total; legacy
+Claude aggregate files remain readable.
 
 ### Pricing (sourced)
 
@@ -237,33 +247,57 @@ rm -f "/tmp/zetetic-subagents-$SID.json"
 
 ## Codex support
 
-The `Stop` guard runs unmodified on Codex (codex-cli 0.157.1). Host
+The shared `Stop` guard runs on Codex (codex-cli 0.157.1). Host
 detection peeks the transcript's first JSONL record: `type == "session_meta"`
 routes to the Codex reader (`transcript_codex.py`, `usage_reader.py`,
 `host_detect.py`); anything else (including an unreadable file) keeps the
-pre-existing Claude path byte-identical. Facts this integration relies on,
+Claude transcript reader. Facts this integration relies on,
 each verified at a primary source:
 
 | Fact | Source |
 |---|---|
 | Stop/SubagentStop input fields (`cwd`, `hook_event_name`, `model`, `session_id`, `stop_hook_active`, `transcript_path`, `turn_id`, plus `agent_id`/`agent_type`/`agent_transcript_path` on SubagentStop) | `stop.command.input` / `subagent-stop.command.input` JSON Schemas embedded in the `codex` binary itself (codex-cli 0.157.1; extracted via `strings` on the installed binary) |
 | `{"decision":"block","reason":...}` blocks the stop and feeds `reason` back, same as Claude Code | `stop.command.output` schema in the same binary; its own embedded comment reads "Claude requires `reason` when `decision` is `block`; we enforce that semantic rule during output parsing rather than in the JSON schema" |
-| `${CLAUDE_PLUGIN_ROOT}` expands in Codex-run hook commands — no `hooks.json` change needed | `CLAUDE_PLUGIN_ROOT` / `PLUGIN_ROOT` strings present in the `codex` binary; empirically, refine-gate's existing `hooks/hooks.json` (same substitution) already runs correctly under Codex today |
-| Context size = latest `token_usage_record.payload.usage.input_tokens` alone; `cached_input_tokens` is a **subset**, not additive; `turn_token_usage`/`thread_token_usage` are cumulative cost counters, not context size | Real rollout `~/.codex/sessions/2026/09/26/rollout-2026-09-26T01-14-28-*.jsonl`: `input_tokens + output_tokens == total_tokens` across multiple records (cached never added); `usage.input_tokens` dropped from 228,390 to 36,520 across a `compacted` record (ordinals 783→793), confirming it — not the cumulative fields — tracks true context occupancy |
+| `${CLAUDE_PLUGIN_ROOT}` expands in Codex-run hook commands, no `hooks.json` change needed | `CLAUDE_PLUGIN_ROOT` / `PLUGIN_ROOT` strings present in the `codex` binary; empirically, refine-gate's existing `hooks/hooks.json` (same substitution) already runs correctly under Codex today |
+| Context size = latest `token_usage_record.payload.usage.input_tokens` alone; `cached_input_tokens` is a **subset**, not additive; `turn_token_usage`/`thread_token_usage` are cumulative cost counters, not context size | Real rollout `~/.codex/sessions/2026/09/26/rollout-2026-09-26T01-14-28-*.jsonl`: `input_tokens + output_tokens == total_tokens` across multiple records (cached never added); `usage.input_tokens` dropped from 228,390 to 36,520 across a `compacted` record (ordinals 783→793), confirming it, not the cumulative fields, tracks true context occupancy |
 | Activity gate: `response_item` records with `payload.type` in `{function_call, custom_tool_call}` | Same rollout; every observed tool invocation was one of these two types |
 | `gpt-6-astra` context window = 258,400 tokens | Same rollout: `session_meta.payload.context_window` and every `event_msg/token_count.info.model_context_window` |
-| `hooks/hooks.json` is read unmodified, same `Stop`/`SubagentStop` keys as Claude — no Codex-specific hooks file | Owner's real `~/.codex/config.toml` trust keys `context-guard@session-optimizer-marketplace:hooks/hooks.json:stop:0:0` and `...:subagent_stop:0:0` |
-| No verified subagent-spawn tool on Codex — the WARN protocol never offers a memory-writer delegate on this host | The sampled rollout's `function_call`/`custom_tool_call` names carried no agent-spawning primitive callable the way `agents/memory-writer.md`'s `subagent_type` is on Claude Code; Codex's multi-agent surface (`turn_context.multi_agent_version`, `inter_agent_communication_metadata`) is a platform feature, not a plugin-defined named tool |
-| `codex exec` (single-shot non-interactive mode) does not invoke the hook lifecycle at all | Empirically verified: zero firings of `Stop`/`UserPromptSubmit`/`PostToolUse`/`SessionEnd` across a real `command_execution` turn in a fresh, trusted `CODEX_HOME`. Hooks fire in interactive sessions (TUI, IDE extension, app-server) only — this plugin is tested via direct subprocess invocation of the hook with a Codex-shaped payload (see `tests/test_context_guard_hooks.py`), the same way `codex` itself invokes it |
+| `hooks/hooks.json` is read unmodified, same `Stop`/`SubagentStop` keys as Claude, no Codex-specific hooks file | Owner's real `~/.codex/config.toml` trust keys `context-guard@session-optimizer-marketplace:hooks/hooks.json:stop:0:0` and `...:subagent_stop:0:0` |
+| Codex checkpoint persistence uses the parent agent directly | The native probe confirmed the parent can write the checkpoint after Stop feedback. The separate child probe verified Codex delegation, but did not establish support for Claude's plugin-defined `memory-writer` agent type. |
+| Native lifecycle, including block feedback and a subsequent clean stop | Codex 0.157.1 app-server probe on 2026-09-26: trusted installed plugin, test-only WARN=1, one `pwd` call; `hook/completed` status `blocked`, then `item/completed` type `hookPrompt`, checkpoint written by the model, second Stop `completed`, turn `completed`. See the reproduction below. |
+| Native SubagentStop | Same isolated app-server probe, one delegated `pwd`: hook completed and the parent aggregate contained one child, 22,424 input + 56 output = 22,480 billed tokens, 18,816 cached input included once, cost `null`. |
+| Codex child cumulative accounting | Real child rollout `rollout-2026-09-26T02-36-21-*.jsonl`: 59 usage records; last child counters 4,621,873 input + 20,306 output = 4,642,179 billed tokens. The 4,436,352 cached inputs are already included. Its first session metadata identifies the child; later inherited metadata identifies the parent. |
+
+### Native lifecycle reproduction
+
+Use a separate `HOME` and `CODEX_HOME`, authenticate that profile, then
+install this plugin there. Set that profile's
+`~/.claude/ctxguard-thresholds.json` to a test-only Astra WARN of 1 and a
+hard limit above the probe's usage. These values exercise the hook; they
+are not production recommendations.
+
+Run `codex app-server` over stdio and send `initialize` with
+`capabilities.experimentalApi=true`, followed by `initialized`.
+`hooks/list` exposes each hook's identity, current hash and trust status.
+Trust only the reviewed context-guard hooks through `/hooks` or their
+`hooks.state.<key>.trusted_hash` configuration entries.
+Start a new thread with `thread/start`, then use `turn/start` to request
+one `pwd` tool call followed by a short reply. Observe the events listed
+in the table and inspect the checkpoint file for the model's summary.
+The installed CLI generates the protocol schemas with
+`codex app-server generate-json-schema --out <directory>`.
+Direct script invocation alone does not prove this lifecycle.
 
 ## Manual install (without the plugin system)
 
 ```bash
-mkdir -p ~/.claude/hooks ~/.claude/agents
+mkdir -p ~/.claude/hooks ~/.claude/agents ~/.claude/tools
 cp hooks/stop-context-guard.py hooks/checkpoint_protocol.py \
    hooks/checkpoint_stub.py hooks/host_detect.py hooks/subagent_spend.py \
    hooks/thresholds.py hooks/transcript_codex.py hooks/transcript_lines.py \
-   hooks/transcript_scan.py hooks/usage_reader.py ~/.claude/hooks/
+   hooks/transcript_scan.py hooks/usage_reader.py hooks/subagent-tracker.py \
+   hooks/subagent_codex.py ~/.claude/hooks/
+cp tools/subagent_usage.py ~/.claude/tools/
 chmod +x ~/.claude/hooks/stop-context-guard.py
 cp agents/memory-writer.md ~/.claude/agents/memory-writer.md
 ```
@@ -272,9 +306,9 @@ cp agents/memory-writer.md ~/.claude/agents/memory-writer.md
 (`checkpoint_protocol.py`, `checkpoint_stub.py`, `host_detect.py`,
 `subagent_spend.py`, `thresholds.py`, `transcript_lines.py`,
 `transcript_scan.py`, `usage_reader.py`), plus `transcript_codex.py`
-transitively via `usage_reader.py` — copy all nine, they must stay together.
-`subagent-tracker.py` imports the shared core from the sibling `tools/`
-directory. Then register the `Stop` /
+transitively via `usage_reader.py`, copy all nine, they must stay together.
+`subagent-tracker.py` imports `subagent_codex.py` and the shared Claude
+core from the sibling `tools/` directory. Then register the `Stop` /
 `SubagentStop` entries (see
 `hooks/hooks.json`) in `~/.claude/settings.json`, pointing at the installed
 paths.
