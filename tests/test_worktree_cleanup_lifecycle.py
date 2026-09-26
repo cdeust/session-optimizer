@@ -147,4 +147,9 @@ class LifecycleTests(base.CleanupTests):
         self.assertFalse(Path(self.path).exists())
         self.assertEqual(h.git(self.repo, "branch", "--list", "feature"), "")
         self.assertEqual(cleanup_intake.read_pending(ledger, "worktree"), [])
-        self.assertEqual(len(cleanup_intake.read_pending(ledger, "host")), 1)
+        # The stand-in session id is not a UUID: the host consumer skips it but
+        # leaves the file in place.
+        self.assertEqual(cleanup_intake.read_pending(ledger, "host"), [])
+        self.assertEqual(
+            len(list(cleanup_intake.directory(ledger, "host").glob("*.json"))), 1
+        )

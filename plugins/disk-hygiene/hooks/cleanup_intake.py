@@ -5,6 +5,7 @@ source: disk-hygiene design . Unique event files cannot overwrite another hook's
 
 import json
 import os
+import re
 import sys
 import uuid
 from pathlib import Path
@@ -57,6 +58,10 @@ def record_end(args, payload):
     return event
 
 
+# source: native host UUID session identifiers; the host consumer builds paths from them.
+HOST_SESSION = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+
+
 def read_pending(state, consumer):
     """Valid end events of one consumer; an unusable file is reported and skipped.
 
@@ -76,6 +81,8 @@ def read_pending(state, consumer):
                 or not isinstance(event.get("roots"), dict)
             ):
                 raise Protected("invalid end intake")
+            if consumer == "host" and not HOST_SESSION.fullmatch(event["session"]):
+                raise Protected("session id is not a UUID")
         except (OSError, ValueError, Protected) as exc:
             print(
                 f"[disk-hygiene] ignored end intake {path.name}: {exc}", file=sys.stderr

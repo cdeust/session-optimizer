@@ -96,8 +96,11 @@ the rollout is kept.
 
 Hooks that arrive together wait up to 10 seconds for the ledger and then report
 `ledger busy` without changing anything. Ordinary tool calls take no lock and
-write nothing. An unreadable or foreign end-of-session intake file is reported on
-stderr and skipped; it does not block other sessions.
+write nothing. An unreadable or invalid end-of-session intake file, or one whose
+session id is not a UUID, is reported on stderr and skipped; it does not block
+other sessions. An intake file recorded under different Claude or Codex roots is
+left untouched and silently ignored by this configuration; the configuration
+that recorded it can still process it.
 
 ## Migrating from the Cortex hooks
 
@@ -108,7 +111,10 @@ If you used the cleanup hooks shipped with the Cortex plugins (Cortex PR 645):
    with the old command, then remove the `disk_hygiene.py --host ... hook ...` entries from
    Cortex's `SessionStart`, `PostToolUse`, `Stop` and `SessionEnd` hooks (Claude Code) and
    from the Cortex Codex plugin's `hooks.json`.
-3. Rename `CORTEX_CLEANUP_TRANSCRIPTS` to `DISK_HYGIENE_TRANSCRIPTS`.
+3. Rename `CORTEX_CLEANUP_TRANSCRIPTS` to `DISK_HYGIENE_TRANSCRIPTS`, and
+   `CORTEX_CLAUDE_DIR` to `CLAUDE_CONFIG_DIR`. The ledger moves to
+   `<CLAUDE_CONFIG_DIR>/disk-hygiene/worktree-cleanup.json`; records in the old
+   ledger are not carried over, and nothing registered there is removed by this plugin.
 4. Do not run both: two copies would apply the same cleanup twice.
 
 An independently installed older standalone hook can still delete transcripts;

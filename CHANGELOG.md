@@ -24,7 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   end-of-session intake file is skipped instead of blocking every hook; the
   context-guard checkpoint follows the transcript policy; a symlinked config
   directory is resolved instead of silently disabling cleanup; the Cortex
-  completion receipt for Codex rollouts is optional.
+  completion receipt for Codex rollouts is optional. Migration: the ledger
+  moves to `<CLAUDE_CONFIG_DIR>/disk-hygiene/worktree-cleanup.json`,
+  `CORTEX_CLAUDE_DIR` becomes `CLAUDE_CONFIG_DIR` and `CORTEX_CLEANUP_TRANSCRIPTS`
+  becomes `DISK_HYGIENE_TRANSCRIPTS`; old ledger records are not carried over.
 
 ### context-guard 2.1.0
 

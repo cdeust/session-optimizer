@@ -369,3 +369,25 @@ def test_hook_commands_point_at_the_shipped_entry_point():
                 for hook in group["hooks"]:
                     assert "${" + root + "}/hooks/disk_hygiene.py" in hook["command"]
     assert (HOOKS / "disk_hygiene.py").is_file()
+
+
+def test_non_uuid_session_intake_does_not_block_host_cleanup(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude"))
+    monkeypatch.setenv("CLAUDE_CODE_TMPDIR", str(tmp_path / "tmp"))
+    monkeypatch.setenv("DISK_HYGIENE_TRANSCRIPTS", "keep")
+    state = str(tmp_path / "ledger.json")
+    odd = event("claude", "not-a-uuid", cleanup_intake.roots())
+    valid = event("claude", SID, cleanup_intake.roots())
+    for consumer in ("host", "worktree"):
+        folder = cleanup_intake.directory(state, consumer)
+        folder.mkdir(parents=True)
+        (folder / "a-odd.json").write_text(json.dumps(odd))
+        (folder / "b-valid.json").write_text(json.dumps(valid))
+
+    host = cleanup_intake.read_pending(state, "host")
+    assert [path.name for path, _ in host] == ["b-valid.json"]
+    assert "a-odd.json" in capsys.readouterr().err
+    worktree = cleanup_intake.read_pending(state, "worktree")
+    assert [path.name for path, _ in worktree] == ["a-odd.json", "b-valid.json"]
