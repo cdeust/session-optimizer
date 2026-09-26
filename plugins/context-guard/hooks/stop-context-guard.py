@@ -46,16 +46,18 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-# Five sibling modules in this same hooks/ directory split the concerns this
+# Six sibling modules in this same hooks/ directory split the concerns this
 # file used to carry alone: checkpoint_protocol (protocol text), checkpoint_stub
 # (stub-markdown render), thresholds (config-table lookup), transcript_lines
-# (line-content predicates), transcript_scan (chunked-line walk). Named
-# failure mode: a manual install copied only this script. A Stop hook must
-# never fail hard, so degrade to inert rather than erroring every stop.
+# (line-content predicates), transcript_scan (chunked-line walk), subagent_spend
+# (spend-aggregate read + render). Named failure mode: a manual install copied
+# only this script. A Stop hook must never fail hard, so degrade to inert
+# rather than erroring every stop.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import checkpoint_protocol
     import checkpoint_stub
+    import subagent_spend
     import thresholds as thresholds_mod
     import transcript_lines
     import transcript_scan
@@ -178,35 +180,14 @@ def _subagent_summary(session_id: str):
     (0, 0, 0.0) if no aggregate exists. This is the cumulative spend the main
     thread's context-window measurement structurally cannot see — surfaced in
     the checkpoint message and stub so the operator sees true session cost.
-
-    Non-fatal: any read/parse problem returns zeros.
-    """
-    path = os.path.join(STATE_DIR, f"zetetic-subagents-{session_id}.json")
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            totals = (json.load(fh) or {}).get("totals") or {}
-    except (OSError, json.JSONDecodeError, ValueError):
-        return 0, 0, 0.0
-    count = int(totals.get("count", 0) or 0)
-    tokens = (
-        int(totals.get("input_tokens", 0) or 0)
-        + int(totals.get("output_tokens", 0) or 0)
-        + int(totals.get("cache_tokens", 0) or 0)
-    )
-    cost = float(totals.get("cost_usd", 0.0) or 0.0)
-    return count, tokens, cost
+    Delegates to the sibling subagent_spend module, passing this module's own
+    (possibly test-monkeypatched) STATE_DIR explicitly."""
+    return subagent_spend.read_summary(STATE_DIR, session_id)
 
 
 def _subagent_line(session_id: str) -> str:
     """One-line subagent-spend note for checkpoint messages, or '' if none."""
-    count, tokens, cost = _subagent_summary(session_id)
-    if count <= 0:
-        return ""
-    return (
-        f"\nSubagent spend this session (not in the main-thread context "
-        f"measure above): {count} runs, ~{tokens:,} billed tokens, "
-        f"~${cost:.2f}."
-    )
+    return subagent_spend.render_spend_line(*_subagent_summary(session_id))
 
 
 def _normalize_since_offset(since_offset: int, size: int) -> int:
@@ -299,13 +280,7 @@ class FireEvent:
 
 def _sub_state_line(session_id: str) -> str:
     """The stub's "subagent spend" bullet, or "" if there was none."""
-    sub_count, sub_tokens, sub_cost = _subagent_summary(session_id)
-    if sub_count <= 0:
-        return ""
-    return (
-        f"- subagent spend: {sub_count} runs · ~{sub_tokens:,} billed tokens · "
-        f"~${sub_cost:.2f} (separate from the context tokens above)\n"
-    )
+    return subagent_spend.render_stub_bullet(*_subagent_summary(session_id))
 
 
 def _write_stub(ev: FireEvent) -> str:

@@ -542,6 +542,7 @@ def test_readme_test_the_tracker_snippet_cleans_up_its_state_file():
 GUARD_SIBLING_MODULES = [
     "checkpoint_protocol",
     "checkpoint_stub",
+    "subagent_spend",
     "thresholds",
     "transcript_lines",
     "transcript_scan",
