@@ -35,8 +35,10 @@ from datetime import datetime, timezone
 _TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
 sys.path.insert(0, _TOOLS)
 try:
-    from subagent_usage import (  # noqa: E402
-        subagent_record, discover_subagents, session_dir_for,
+    from subagent_usage import (
+        discover_subagents,
+        session_dir_for,
+        subagent_record,
     )
 except ImportError:
     # Core module unavailable -> nothing to track; never fail the hook.
@@ -114,6 +116,29 @@ def _update_from_transcript(state, transcript_path):
     state["agents"][rec.agent_id] = _agent_entry(rec)
 
 
+def _sweep_siblings(state, transcript_path):
+    """Belt-and-suspenders: also sweep every sibling subagent transcript in
+    the same session directory, so the aggregate stays complete even if an
+    earlier SubagentStop was missed (e.g. the hook was installed mid-session).
+    No-op if `transcript_path` is not a per-agent transcript or has no
+    discoverable session directory."""
+    session_dir = session_dir_for(transcript_path)
+    if not session_dir:
+        return
+    for path in discover_subagents(session_dir):
+        if path != transcript_path:
+            _update_from_transcript(state, path)
+
+
+def _save_state(session_id, state):
+    """Persist `state` to disk. Non-fatal: any write failure is swallowed."""
+    try:
+        with open(_state_path(session_id), "w", encoding="utf-8") as fh:
+            json.dump(state, fh)
+    except OSError:
+        pass
+
+
 def main():
     try:
         data = json.load(sys.stdin)
@@ -128,23 +153,11 @@ def main():
     # Primary: this subagent's own transcript (cleanest, exact attribution).
     if transcript_path and os.path.basename(transcript_path).startswith("agent-"):
         _update_from_transcript(state, transcript_path)
-        # Belt-and-suspenders: also sweep every sibling subagent transcript so
-        # the aggregate stays complete even if an earlier SubagentStop was
-        # missed (e.g. the hook was installed mid-session).
-        session_dir = session_dir_for(transcript_path)
-        if session_dir:
-            for path in discover_subagents(session_dir):
-                if path not in (transcript_path,):
-                    _update_from_transcript(state, path)
+        _sweep_siblings(state, transcript_path)
 
     _recompute_totals(state)
     state["updated_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    try:
-        with open(_state_path(session_id), "w", encoding="utf-8") as fh:
-            json.dump(state, fh)
-    except OSError:
-        return
+    _save_state(session_id, state)
     sys.exit(0)
 
 

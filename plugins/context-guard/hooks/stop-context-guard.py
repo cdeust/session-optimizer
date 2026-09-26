@@ -22,61 +22,52 @@ Contract:
 
   Precondition:  invoked as a Stop hook with JSON on stdin containing
                  session_id, transcript_path, cwd, stop_hook_active.
-  Postcondition:
-    - below WARN            -> exit 0, no output, no side effects.
-    - WARN <= ctx < HARD    -> write a free mechanical checkpoint stub (summary
-                               schema) AND block the stop exactly once: the model
-                               is instructed to spawn the `memory-writer` subagent
-                               (a normal Claude Code agent, shipped in this
-                               plugin under agents/) that persists the model's
-                               distilled summary — by default into the stub file
-                               itself (vanilla Claude Code, no extra tooling);
-                               when a scoped memory layer is detected at runtime
-                               (checkpoint_protocol.detect_memory_tool), into
-                               that store instead — then RESUME the user's task
-                               in-session (reflection, not a stop).
-    - ctx >= HARD           -> write the stub AND block the stop exactly once,
-                               injecting the checkpoint-finalize procedure so the
-                               model persists the semantic checkpoint and signals
-                               the user to clear + resume via the checkpoint file.
-                               Because WARN already ran the reflection, the hard
-                               block is normally a formality, not a scramble.
+  Postcondition: below WARN -> exit 0, no output, no side effects; WARN..HARD
+                 -> write the mechanical checkpoint stub and block the stop
+                 exactly once as a reflection pause (session resumes); >=HARD
+                 -> write the stub and block exactly once with the
+                 checkpoint-then-clear procedure. Full level/action table and
+                 the memory-writer handoff: see README.md "The Stop guard".
 
-  Checkpoint schema (summary schema): goals / file references (paths + line
-  ranges) / errors and fixes / current state / next steps, <=500 words total,
-  any quoted tool output clipped to 2,000 chars. Resume contract: read the
-  checkpoint + at most ONE targeted search; do NOT re-read files the checkpoint
-  already summarizes.
+  Re-entrancy / loop safety: stop_hook_active true -> exit 0 (already inside a
+  forced continuation); a per-session state file records the highest level
+  already fired, so each level fires at most once per session and the hard
+  block cannot loop.
 
-  Re-entrancy / loop safety:
-    - if stop_hook_active is true, exit 0 (we are already in a forced continuation).
-    - per-session state file records the highest level already fired; each level
-      fires at most once per session, so the hard block cannot loop.
-
-  Non-fatal by construction: any parse/IO error exits 0 (a Stop hook must never
-  wedge the session). The statusline already provides the passive visual warning;
-  this hook is the active enforcement layer.
+  Non-fatal by construction: any parse/IO error exits 0 (a Stop hook must
+  never wedge the session). The statusline already provides the passive
+  visual warning; this hook is the active enforcement layer.
 """
 
 import json
 import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
-# The protocol text (generic vs scoped-memory-layer variants) lives in the
-# sibling checkpoint_protocol module, shipped in the same hooks/ directory.
-# Named failure mode: a manual install copied only this script. A Stop hook
-# must never fail hard, so degrade to inert rather than erroring every stop.
+# Five sibling modules in this same hooks/ directory split the concerns this
+# file used to carry alone: checkpoint_protocol (protocol text), checkpoint_stub
+# (stub-markdown render), thresholds (config-table lookup), transcript_lines
+# (line-content predicates), transcript_scan (chunked-line walk). Named
+# failure mode: a manual install copied only this script. A Stop hook must
+# never fail hard, so degrade to inert rather than erroring every stop.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import checkpoint_protocol
+    import checkpoint_stub
+    import thresholds as thresholds_mod
+    import transcript_lines
+    import transcript_scan
 except ImportError:
     sys.exit(0)
 
 # --- Thresholds (tokens) -----------------------------------------------------
 # Single source of truth shared with statusline-command.sh. First substring
 # match against the lowercased model id wins; "default" applies otherwise.
+# Table lookup itself lives in the sibling thresholds module; CONFIG_PATH and
+# FALLBACK_THRESHOLDS stay here (not in that module) so tests can monkeypatch
+# them as guard's own module attributes.
 CONFIG_PATH = os.path.join(
     os.path.expanduser("~"), ".claude", "ctxguard-thresholds.json"
 )
@@ -93,59 +84,34 @@ FALLBACK_THRESHOLDS = {
 
 
 def _thresholds(model_id: str):
-    """Return (warn, hard) for the model. Non-fatal: any config problem falls
-    back to FALLBACK_THRESHOLDS; any malformed entry is skipped.
+    """Return (warn, hard) for the model. Non-fatal: any config problem or
+    malformed matched/default entry falls back to FALLBACK_THRESHOLDS["default"].
 
     Precondition:  model_id is a string or None.
     Postcondition: warn < hard, both positive ints.
     """
-    table = FALLBACK_THRESHOLDS
+    table = thresholds_mod.load_table(CONFIG_PATH, FALLBACK_THRESHOLDS)
+    entry = thresholds_mod.matching_entry(table, model_id, FALLBACK_THRESHOLDS["default"])
+    fallback = FALLBACK_THRESHOLDS["default"]
     try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
-            loaded = json.load(fh)
-        if isinstance(loaded, dict) and isinstance(loaded.get("models"), list):
-            table = loaded
-    except (OSError, json.JSONDecodeError, ValueError):
-        table = FALLBACK_THRESHOLDS
-
-    mid = (model_id or "").lower()
-    chosen = table.get("default") or FALLBACK_THRESHOLDS["default"]
-    for entry in table.get("models", []):
-        try:
-            if entry["match"] in mid:
-                chosen = entry
-                break
-        except (KeyError, TypeError):
-            continue
-    try:
-        warn, hard = int(chosen["warn"]), int(chosen["hard"])
-        if 0 < warn < hard:
-            return warn, hard
+        warn, hard = int(entry["warn"]), int(entry["hard"])
     except (KeyError, TypeError, ValueError):
-        d = FALLBACK_THRESHOLDS["default"]
-        return d["warn"], d["hard"]
-    d = FALLBACK_THRESHOLDS["default"]
-    return d["warn"], d["hard"]
+        return fallback["warn"], fallback["hard"]
+    if 0 < warn < hard:
+        return warn, hard
+    return fallback["warn"], fallback["hard"]
 
 
 STATE_DIR = "/tmp"
 LEVEL_ORDER = {"none": 0, "warn": 1, "hard": 2}
 
-# --- Bounded reverse-tail read parameters ------------------------------------
-# Claude Code transcripts grow to 100MB–1GB in long sessions, and this hook
-# fires on every Stop. Reading the whole file (readlines) is O(file size) in
-# memory; we instead seek to the tail and scan backward.
-#
-# TAIL_CHUNK = 64 KiB (a power-of-two block multiple). Justification, measured
-# on a real 24.5MB transcript at
-#   ~/.claude/projects/-Users-cdeust-Developments-Cortex/<uuid>.jsonl :
-#   - the last assistant `usage` record was 7,591 bytes from EOF;
-#   - usage JSONL lines were min=1,016 / median=1,729 / max=32,769 bytes.
-# A single 64 KiB tail read covers the last-usage offset ~8.6x over and the
-# largest single usage line ~2x over, so one chunk suffices in practice.
-# The usage record is rewritten on every assistant turn, so it is always near
-# the end. Chunk-stepping with TAIL_MAX_BYTES is a hard safety bound, not a
-# tuning knob.
+# --- Bounded chunked-scan parameters (see transcript_scan.py for the walk) --
+# Transcripts grow to 100MB-1GB; readlines() is O(file size) in memory, so we
+# scan in bounded chunks instead. TAIL_CHUNK=64KiB, measured on a real 24.5MB
+# transcript (~/.claude/projects/-Users-cdeust-Developments-Cortex/<uuid>.jsonl):
+# last usage record 7,591 bytes from EOF; usage lines min=1,016/median=1,729/
+# max=32,769 bytes -- one 64KiB chunk covers both ~2-8.6x over, so one chunk
+# suffices in practice. TAIL_MAX_BYTES is a hard safety bound, not a tuning knob.
 TAIL_CHUNK = 64 * 1024          # 65536 bytes
 TAIL_MAX_BYTES = 4 * 1024 * 1024  # cap total bytes scanned at 4 MiB
 
@@ -159,26 +125,16 @@ def _exit(payload=None):
 
 def _usage_from_line(line: str):
     """Parse one JSONL line; return (ctx, model) if it carries a positive
-    assistant usage record, else None. Pure, no I/O."""
-    line = line.strip()
-    if not line:
-        return None
-    try:
-        obj = json.loads(line)
-    except json.JSONDecodeError:
-        return None
-    msg = obj.get("message") or {}
-    usage = msg.get("usage")
-    if not usage:
-        return None
-    ctx = (
-        int(usage.get("input_tokens", 0) or 0)
-        + int(usage.get("cache_creation_input_tokens", 0) or 0)
-        + int(usage.get("cache_read_input_tokens", 0) or 0)
-    )
-    if ctx <= 0:
-        return None
-    return ctx, msg.get("model") or obj.get("model")
+    assistant usage record, else None. Pure, no I/O. Delegates to the
+    sibling transcript_lines module (shared line-content predicates)."""
+    return transcript_lines.usage_from_line(line)
+
+
+def _scan_budget() -> transcript_scan.ScanBudget:
+    """Build a ScanBudget from this module's own TAIL_CHUNK/TAIL_MAX_BYTES at
+    call time (not import time), so tests that monkeypatch those module
+    attributes still control the scan size."""
+    return transcript_scan.ScanBudget(TAIL_CHUNK, TAIL_MAX_BYTES)
 
 
 def _read_last_usage(transcript_path: str):
@@ -187,15 +143,13 @@ def _read_last_usage(transcript_path: str):
 
     Precondition:  transcript_path is a path string (or None).
     Postcondition: returns (ctx, model) for the last line carrying a positive
-                   usage record within the scanned tail, else (None, None).
-                   On any missing/unreadable file or non-str path, returns
-                   (None, None) — identical to the previous readlines() contract.
+                   usage record within the scanned tail, else (None, None) —
+                   fails closed whether the scan hit TAIL_MAX_BYTES or reached
+                   the start of the file cleanly; on any missing/unreadable
+                   file or non-str path, also (None, None).
 
-    Bounded reverse-tail read: seeks to max(0, size - TAIL_CHUNK) and scans the
-    tail backward, stepping back chunk by chunk until a usage record is found
-    or TAIL_MAX_BYTES have been scanned. Peak memory is O(TAIL_CHUNK), not
-    O(file size). Decoded as UTF-8 with errors='replace' so a chunk boundary
-    that splits a multi-byte sequence cannot raise.
+    Bounded reverse scan via transcript_scan.iter_lines_backward: peak memory
+    is O(TAIL_CHUNK), not O(file size).
     """
     try:
         size = os.stat(transcript_path).st_size
@@ -205,52 +159,13 @@ def _read_last_usage(transcript_path: str):
         return None, None
 
     try:
-        fh = open(transcript_path, "rb")
+        with open(transcript_path, "rb") as fh:
+            lines = transcript_scan.iter_lines_backward(
+                fh, size, transcript_scan.ScanResult(), _scan_budget())
+            hit = transcript_scan.first_match(lines, _usage_from_line)
     except (OSError, TypeError, ValueError):
         return None, None
-
-    try:
-        carry = ""          # bytes of a line split across the chunk boundary
-        pos = size          # exclusive high-water mark of bytes not yet read
-        scanned = 0
-        while pos > 0 and scanned < TAIL_MAX_BYTES:
-            read_size = min(TAIL_CHUNK, pos)
-            pos -= read_size
-            scanned += read_size
-            fh.seek(pos)
-            chunk = fh.read(read_size).decode("utf-8", errors="replace")
-            # Prepend; carry holds the partial line that started inside this chunk.
-            buf = chunk + carry
-            # If we have not reached the start of the file, the first segment of
-            # buf is a partial line (its true beginning is in an earlier chunk).
-            # Hold it back as carry and scan only the complete lines after it.
-            if pos > 0:
-                nl = buf.find("\n")
-                if nl == -1:
-                    # No newline in the whole window yet: keep accumulating,
-                    # but bound carry growth by the scan cap (handled by loop).
-                    carry = buf
-                    continue
-                carry = buf[:nl]
-                lines = buf[nl + 1:].split("\n")
-            else:
-                # Reached file start: buf begins at a real line boundary.
-                carry = ""
-                lines = buf.split("\n")
-            for line in reversed(lines):
-                hit = _usage_from_line(line)
-                if hit is not None:
-                    return hit
-        # Cap reached or whole file consumed; check any final carried line.
-        if carry:
-            hit = _usage_from_line(carry)
-            if hit is not None:
-                return hit
-        return None, None
-    except OSError:
-        return None, None
-    finally:
-        fh.close()
+    return hit if hit is not None else (None, None)
 
 
 def _subagent_summary(session_id: str):
@@ -287,158 +202,119 @@ def _subagent_line(session_id: str) -> str:
             f"~${cost:.2f}.")
 
 
+def _normalize_since_offset(since_offset: int, size: int) -> int:
+    """A stale offset (from a rotated/replaced transcript) cannot be trusted
+    as "caught up" -- rescan from 0 instead. Clamp negative input to 0."""
+    since_offset = max(0, since_offset or 0)
+    return 0 if since_offset > size else since_offset
+
+
 def _has_activity_since(transcript_path: str, since_offset: int) -> bool:
     """True if the transcript contains at least one tool_use content block
     at or after byte `since_offset`.
 
-    Forward bounded scan mirroring the backward TAIL_CHUNK/TAIL_MAX_BYTES
-    scan already used by _read_last_usage: seek to since_offset, read
-    forward in TAIL_CHUNK blocks up to TAIL_MAX_BYTES total, early-exit on
-    the first tool_use found. Fail-open: if the scan cap is hit without
-    finding one, return True (preserve the previous always-fire behavior
-    rather than risk silently dropping a checkpoint we could not fully
-    verify is safe to skip). since_offset larger than the current file size
-    means the offset is stale (the transcript was replaced/rotated between
-    fires) and cannot be trusted as "caught up" -- rescan from 0 instead of
-    concluding there is nothing new.
+    Fail-open: if the scan cap (TAIL_MAX_BYTES) is hit before reaching EOF,
+    or the file cannot be read/parsed at all, return True (preserve the
+    previous always-fire behavior rather than risk silently dropping a
+    checkpoint we could not fully verify is safe to skip). False only after
+    a clean scan to EOF within the byte cap found none. since_offset larger
+    than the current file size means the offset is stale (the transcript was
+    replaced/rotated between fires) and cannot be trusted as "caught up" --
+    rescan from 0 instead of concluding there is nothing new.
 
     Precondition:  transcript_path is a path string (or None); since_offset
                    is a non-negative int (0 scans the whole file).
-    Postcondition: True if a tool_use block was found or the file could not
-                   be read/parsed at all (fail-open); False only after a
-                   clean scan to EOF within the byte cap found none.
+    Postcondition: True if a tool_use block was found, the scan cap was hit
+                   before EOF, or the file could not be read/parsed at all
+                   (fail-open); False only after a clean scan to EOF within
+                   the byte cap found none.
     """
     try:
         size = os.stat(transcript_path).st_size
     except (OSError, TypeError, ValueError):
         return True  # can't tell -> don't silently skip
 
-    since_offset = max(0, since_offset or 0)
-    if since_offset > size:
-        since_offset = 0  # stale baseline (transcript replaced/rotated) -> rescan
-    elif since_offset == size:
+    since_offset = _normalize_since_offset(since_offset, size)
+    if since_offset == size:
         return False  # nothing appended since last fire / session start
 
     try:
-        fh = open(transcript_path, "rb")
+        with open(transcript_path, "rb") as fh:
+            result = transcript_scan.ScanResult()
+            rng = transcript_scan.ByteRange(since_offset, size)
+            lines = transcript_scan.iter_lines_forward(fh, rng, result, _scan_budget())
+            found = transcript_scan.first_match(
+                lines, lambda line: True if _line_has_tool_use(line) else None)
     except (OSError, TypeError, ValueError):
         return True
 
-    try:
-        pos = since_offset
-        scanned = 0
-        carry = ""
-        while pos < size and scanned < TAIL_MAX_BYTES:
-            fh.seek(pos)
-            chunk_bytes = fh.read(min(TAIL_CHUNK, size - pos))
-            if not chunk_bytes:
-                break
-            pos += len(chunk_bytes)
-            scanned += len(chunk_bytes)
-            buf = carry + chunk_bytes.decode("utf-8", errors="replace")
-            lines = buf.split("\n")
-            carry = lines[-1]  # last (possibly partial) line held for next chunk
-            for line in lines[:-1]:
-                if _line_has_tool_use(line):
-                    return True
-        if carry and _line_has_tool_use(carry):
-            return True
-        if pos >= size:
-            return False  # reached EOF cleanly, no tool_use found
-        return True  # cap hit before EOF -> fail-open
-    except OSError:
+    if found:
         return True
-    finally:
-        fh.close()
+    return result.reason == "cap"  # clean EOF with no hit -> False
 
 
 def _line_has_tool_use(line: str) -> bool:
-    """True if a JSONL transcript line's assistant message content carries
-    a tool_use block. Pure, no I/O."""
-    line = line.strip()
-    if not line:
-        return False
-    try:
-        obj = json.loads(line)
-    except json.JSONDecodeError:
-        return False
-    content = (obj.get("message") or {}).get("content")
-    if not isinstance(content, list):
-        return False
-    return any(
-        isinstance(block, dict) and block.get("type") == "tool_use"
-        for block in content
-    )
+    """True if a JSONL transcript line's assistant message content carries a
+    tool_use block. Pure, no I/O. Delegates to the sibling transcript_lines
+    module (shared line-content predicates)."""
+    return transcript_lines.line_has_tool_use(line)
 
 
 def _git(cwd: str, *args: str) -> str:
     try:
         out = subprocess.run(
             ["git", "-C", cwd, "-c", "core.useBuiltinFSMonitor=false", *args],
-            capture_output=True, text=True, timeout=3,
+            capture_output=True, text=True, timeout=3, check=False,
         )
         return out.stdout.strip()
-    except Exception:
+    except OSError:
         return ""
 
 
-def _write_stub(session_id: str, cwd: str, ctx: int, model_id: str, level: str) -> str:
-    """Capture mechanical session state for free. Returns the stub path (or '')."""
+@dataclass
+class FireEvent:
+    """The fields a single Stop-guard fire shares across the stub, state, and
+    checkpoint-reason builders, so they take one object instead of several
+    separate positional parameters. `stub_path` starts empty and is filled
+    in once `_write_stub` has run."""
+
+    session_id: str
+    cwd: str
+    ctx: int
+    model_id: str
+    level: str
+    stub_path: str = ""
+
+
+def _sub_state_line(session_id: str) -> str:
+    """The stub's "subagent spend" bullet, or "" if there was none."""
+    sub_count, sub_tokens, sub_cost = _subagent_summary(session_id)
+    if sub_count <= 0:
+        return ""
+    return (f"- subagent spend: {sub_count} runs · ~{sub_tokens:,} billed tokens · "
+            f"~${sub_cost:.2f} (separate from the context tokens above)\n")
+
+
+def _write_stub(ev: FireEvent) -> str:
+    """Capture mechanical session state for free. Returns the stub path, or
+    "" if the checkpoints directory or either file could not be written.
+    Rendering itself is pure and lives in the sibling checkpoint_stub module;
+    this function owns the I/O (git subprocess calls, subagent-aggregate
+    read, file writes)."""
     root = os.path.join(os.path.expanduser("~"), ".claude", "memories", "checkpoints")
     try:
         os.makedirs(root, exist_ok=True)
     except OSError:
         return ""
 
-    branch = _git(cwd, "symbolic-ref", "--short", "HEAD") or _git(cwd, "rev-parse", "--short", "HEAD")
-    last_commit = _git(cwd, "log", "-1", "--oneline")
-    modified = _git(cwd, "status", "--porcelain")
-    iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    sub_count, sub_tokens, sub_cost = _subagent_summary(session_id)
-    sub_state = (
-        f"- subagent spend: {sub_count} runs · ~{sub_tokens:,} billed tokens · "
-        f"~${sub_cost:.2f} (separate from the context tokens above)\n"
-        if sub_count > 0 else ""
+    git_info = checkpoint_stub.GitInfo(
+        branch=_git(ev.cwd, "symbolic-ref", "--short", "HEAD") or _git(ev.cwd, "rev-parse", "--short", "HEAD"),
+        last_commit=_git(ev.cwd, "log", "-1", "--oneline"),
+        modified=_git(ev.cwd, "status", "--porcelain"),
     )
+    stub = checkpoint_stub.render(ev, git_info, _sub_state_line(ev.session_id))
 
-    stub = f"""---
-description: "Auto-checkpoint ({level}) at {ctx:,} tokens — session {session_id[:8]} on {branch or 'unknown branch'}"
----
-## Auto-checkpoint stub ({level}) — {iso}
-
-> Mechanical state captured for free by stop-context-guard at {ctx:,} context
-> tokens (model: {model_id or 'unknown'}). The semantic fields below follow the
-> summary schema. Budget: <=500 words total across all sections; clip any
-> quoted tool output to 2,000 chars.
-
-### Goals
-<to be filled: what this session is trying to achieve, in priority order>
-
-### File references
-(paths + line ranges the resumed session will need; seeded from git status —
-replace with the load-bearing files and add `path:start-end` line ranges)
-{os.linesep.join('- ' + line.strip() for line in modified.splitlines()) if modified else '- (working tree clean)'}
-
-### Errors and fixes
-<to be filled: each error hit this session and how it was fixed or worked around>
-
-### Current state
-- session_id: {session_id}
-- model: {model_id or 'unknown'} · context tokens at trigger: {ctx:,}
-- working dir: {cwd}
-- branch: {branch or '(unknown)'} · last commit: {last_commit or '(none)'}
-{sub_state}<to be filled: one paragraph — where the work stands right now>
-
-### Next steps
-<to be filled: exact ordered actions for the resumed session; first one must be
-executable without re-deriving anything>
-
-### Resume contract
-Read this checkpoint + at most ONE targeted search. Do NOT re-read files this
-checkpoint already summarizes — trust the file references above and verify with
-targeted Reads only when editing.
-"""
-    per_session = os.path.join(root, f"{session_id}.md")
+    per_session = os.path.join(root, f"{ev.session_id}.md")
     latest = os.path.join(root, "latest.md")
     try:
         with open(per_session, "w", encoding="utf-8") as fh:
@@ -477,15 +353,120 @@ def _save_state(session_id: str, state: dict) -> None:
         return
 
 
-def main():
-    data = {}
+def _parse_stop_input():
+    """Read and validate the Stop-hook stdin payload.
+
+    Postcondition: returns the parsed dict when it is JSON, a dict, and not
+    already inside a forced continuation; else None (unparsable JSON, a
+    non-dict JSON value, or stop_hook_active is true) -- every None case
+    means "the caller should _exit() immediately".
+    """
     try:
         data = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
-        _exit()
+        return None
+    if not isinstance(data, dict) or data.get("stop_hook_active"):
+        return None
+    return data
 
-    # Loop guard: if we already forced a continuation, do not act again.
-    if data.get("stop_hook_active"):
+
+def _classify_level(ctx: int, warn: int, hard: int):
+    """Return "hard", "warn", or None (below warn -> nothing to do)."""
+    if ctx >= hard:
+        return "hard"
+    if ctx >= warn:
+        return "warn"
+    return None
+
+
+def _next_scan_offset(state: dict, transcript_path: str) -> int:
+    """Byte offset to resume the activity scan from: the last recorded fire
+    offset IF it was recorded against this same transcript_path, else 0 (a
+    stale offset from a different/rotated transcript cannot be trusted)."""
+    if state.get("transcript_path") == transcript_path:
+        return state.get("last_fire_offset", 0)
+    return 0
+
+
+def _should_fire(state: dict, level: str, transcript_path: str) -> bool:
+    """True if this Stop should actually fire: the level crosses UP into a
+    not-yet-fired level for this session, AND real activity (a tool_use
+    block) happened since the last fire or session start."""
+    prev = state.get("level", "none")
+    if LEVEL_ORDER[level] <= LEVEL_ORDER[prev]:
+        return False
+    since_offset = _next_scan_offset(state, transcript_path)
+    return _has_activity_since(transcript_path, since_offset)
+
+
+def _next_state(state: dict, ev: FireEvent, transcript_path: str) -> dict:
+    """The state dict to persist after firing at `ev.level`."""
+    try:
+        new_offset = os.stat(transcript_path).st_size
+    except (OSError, TypeError, ValueError):
+        new_offset = _next_scan_offset(state, transcript_path)
+    return {
+        "level": ev.level,
+        "initial_ctx": state.get("initial_ctx") or ev.ctx,
+        "last_fire_ctx": ev.ctx,
+        "last_fire_offset": new_offset,
+        "transcript_path": transcript_path,
+        "fired_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+@dataclass(frozen=True)
+class CheckpointReasons:
+    """The threshold values plus the (generic or scoped) reason-builder pair
+    a fire payload needs — bundled so `_fire_payload` takes one object
+    instead of four separate parameters."""
+
+    warn: int
+    hard: int
+    warn_reason: object
+    block_reason: object
+
+
+def _checkpoint_reasons(cwd: str, warn: int, hard: int) -> CheckpointReasons:
+    """Build a CheckpointReasons, choosing the generic or scoped wording at
+    runtime by whether a scoped memory layer is detected for `cwd`. Runtime
+    detection means the scoped wording is emitted only when the layer is
+    actually installed; everyone else gets the stub-file protocol, which
+    references vanilla Claude Code tools only."""
+    if checkpoint_protocol.detect_memory_tool(cwd) is not None:
+        return CheckpointReasons(warn, hard, checkpoint_protocol.warn_reason_scoped,
+                                  checkpoint_protocol.block_reason_scoped)
+    return CheckpointReasons(warn, hard, checkpoint_protocol.warn_reason,
+                              checkpoint_protocol.block_reason)
+
+
+def _fire_payload(ev: FireEvent, reasons: CheckpointReasons, sub_line: str) -> dict:
+    """Build the hook's stdout JSON payload for this fire event."""
+    if ev.level == "hard":
+        return {
+            "decision": "block",
+            "reason": reasons.block_reason(ev.ctx, ev.stub_path, reasons.hard) + sub_line,
+            "systemMessage": (
+                f"[context-guard] {ev.ctx:,} tokens ≥ {reasons.hard:,} soft cap "
+                f"({ev.model_id or 'model'}) — forcing a checkpoint before the "
+                f"session continues." + sub_line
+            ),
+        }
+    return {
+        "decision": "block",
+        "reason": reasons.warn_reason(ev.ctx, ev.stub_path, reasons.warn, reasons.hard) + sub_line,
+        "systemMessage": (
+            f"[context-guard] {ev.ctx:,} tokens ≥ {reasons.warn:,} checkpoint threshold "
+            f"({(ev.model_id or 'model')}) — spawning the memory-writer subagent to "
+            f"persist the semantic checkpoint, then the session continues. "
+            f"Mechanical stub: {ev.stub_path or 'n/a'}. Hard stop at {reasons.hard:,}." + sub_line
+        ),
+    }
+
+
+def main():
+    data = _parse_stop_input()
+    if data is None:
         _exit()
 
     session_id = data.get("session_id") or "unknown"
@@ -497,83 +478,20 @@ def main():
         _exit()
 
     warn, hard = _thresholds(model_id)
-    level = "none"
-    if ctx >= hard:
-        level = "hard"
-    elif ctx >= warn:
-        level = "warn"
-    else:
+    level = _classify_level(ctx, warn, hard)
+    if level is None:
         _exit()
 
     state = _load_state(session_id)
-    prev = state.get("level", "none")
-    # Only act when crossing UP into a not-yet-fired level.
-    if LEVEL_ORDER[level] <= LEVEL_ORDER[prev]:
+    if not _should_fire(state, level, transcript_path):
         _exit()
 
-    # Activity gate: skip silently if nothing checkpointable happened since
-    # the last fire (or session start). The byte offset is only meaningful
-    # against the SAME growing transcript file -- if transcript_path changed
-    # since the last fire (rotation, compaction, a different session reusing
-    # this session_id), a stale offset compared against an unrelated file is
-    # worse than useless, so it is only trusted when the path matches.
-    # Does NOT advance level/offset/path on skip, so the next Stop re-checks
-    # from the same baseline and fires as soon as real activity appears --
-    # never permanently silenced.
-    since_offset = (
-        state.get("last_fire_offset", 0)
-        if state.get("transcript_path") == transcript_path else 0
-    )
-    if not _has_activity_since(transcript_path, since_offset):
-        _exit()
+    ev = FireEvent(session_id, cwd, ctx, model_id, level)
+    ev.stub_path = _write_stub(ev)
+    _save_state(session_id, _next_state(state, ev, transcript_path))
 
-    stub_path = _write_stub(session_id, cwd, ctx, model_id, level)
-    try:
-        new_offset = os.stat(transcript_path).st_size
-    except (OSError, TypeError, ValueError):
-        new_offset = since_offset
-    _save_state(session_id, {
-        "level": level,
-        "initial_ctx": state.get("initial_ctx") or ctx,
-        "last_fire_ctx": ctx,
-        "last_fire_offset": new_offset,
-        "transcript_path": transcript_path,
-        "fired_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    })
-    sub_line = _subagent_line(session_id)
-
-    # Runtime detection: the scoped-memory-layer wording is emitted only when
-    # the layer is actually installed; everyone else gets the stub-file
-    # protocol, which references vanilla Claude Code tools only.
-    scoped = checkpoint_protocol.detect_memory_tool(cwd) is not None
-    if scoped:
-        warn_reason = checkpoint_protocol.warn_reason_scoped
-        block_reason = checkpoint_protocol.block_reason_scoped
-    else:
-        warn_reason = checkpoint_protocol.warn_reason
-        block_reason = checkpoint_protocol.block_reason
-
-    if level == "hard":
-        _exit({
-            "decision": "block",
-            "reason": block_reason(ctx, stub_path, hard) + sub_line,
-            "systemMessage": (
-                f"[context-guard] {ctx:,} tokens ≥ {hard:,} soft cap "
-                f"({model_id or 'model'}) — forcing a checkpoint before the "
-                f"session continues." + sub_line
-            ),
-        })
-    else:  # warn — one-time reflection block: persist memory while headroom remains
-        _exit({
-            "decision": "block",
-            "reason": warn_reason(ctx, stub_path, warn, hard) + sub_line,
-            "systemMessage": (
-                f"[context-guard] {ctx:,} tokens ≥ {warn:,} checkpoint threshold "
-                f"({(model_id or 'model')}) — spawning the memory-writer subagent to "
-                f"persist the semantic checkpoint, then the session continues. "
-                f"Mechanical stub: {stub_path or 'n/a'}. Hard stop at {hard:,}." + sub_line
-            ),
-        })
+    reasons = _checkpoint_reasons(cwd, warn, hard)
+    _exit(_fire_payload(ev, reasons, _subagent_line(session_id)))
 
 
 if __name__ == "__main__":

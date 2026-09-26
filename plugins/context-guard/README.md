@@ -198,16 +198,20 @@ rm -f "/tmp/zetetic-subagents-$SID.json"
 
 ```bash
 mkdir -p ~/.claude/hooks ~/.claude/agents
-cp hooks/stop-context-guard.py hooks/checkpoint_protocol.py ~/.claude/hooks/
+cp hooks/stop-context-guard.py hooks/checkpoint_protocol.py \
+   hooks/checkpoint_stub.py hooks/thresholds.py hooks/transcript_lines.py \
+   hooks/transcript_scan.py ~/.claude/hooks/
 chmod +x ~/.claude/hooks/stop-context-guard.py
 cp agents/memory-writer.md ~/.claude/agents/memory-writer.md
 ```
 
-`stop-context-guard.py` imports `checkpoint_protocol.py` from its own
-directory and `subagent-tracker.py` imports the shared core from the sibling
-`tools/` directory — keep each pair together. Then register the `Stop` /
-`SubagentStop` entries (see `hooks/hooks.json`) in `~/.claude/settings.json`,
-pointing at the installed paths.
+`stop-context-guard.py` imports five sibling modules from its own directory
+(`checkpoint_protocol.py`, `checkpoint_stub.py`, `thresholds.py`,
+`transcript_lines.py`, `transcript_scan.py`) and `subagent-tracker.py`
+imports the shared core from the sibling `tools/` directory — keep the whole
+set together. Then register the `Stop` / `SubagentStop` entries (see
+`hooks/hooks.json`) in `~/.claude/settings.json`, pointing at the installed
+paths.
 
 ## License
 

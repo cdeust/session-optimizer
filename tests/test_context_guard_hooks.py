@@ -123,7 +123,8 @@ def test_stub_and_level_state_round_trip(tmp_path, monkeypatch):
         "symbolic-ref": "feature", "log": "abc subject", "status": " M README.md",
     }.get(args[0], ""))
     monkeypatch.setattr(guard, "_subagent_summary", lambda _sid: (2, 3000, 0.5))
-    stub = guard._write_stub("session-123", str(tmp_path), 190_000, "opus", "warn")
+    ev = guard.FireEvent("session-123", str(tmp_path), 190_000, "opus", "warn")
+    stub = guard._write_stub(ev)
     text = Path(stub).read_text()
     assert "feature" in text and "README.md" in text and "2 runs" in text
     assert (Path(stub).parent / "latest.md").read_text() == text
@@ -167,6 +168,18 @@ def test_has_activity_since_and_line_has_tool_use(tmp_path):
     assert guard._has_activity_since(str(with_tool), offset_after_tool_use) is False
 
 
+def test_has_activity_since_fails_open_when_the_scan_cap_is_hit_before_eof(tmp_path, monkeypatch):
+    """The scan-cap ("cap") branch of the eof/cap distinction: no tool_use
+    anywhere, but the transcript is larger than what TAIL_MAX_BYTES allows to
+    be scanned before EOF -- must fail OPEN (True), never a silent False."""
+    monkeypatch.setattr(guard, "TAIL_CHUNK", 8)
+    monkeypatch.setattr(guard, "TAIL_MAX_BYTES", 16)
+    text_only_line = json.dumps({"message": {"content": [{"type": "text", "text": "hi"}]}})
+    transcript = tmp_path / "big.jsonl"
+    transcript.write_text((text_only_line + "\n") * 20)  # far larger than the 16-byte cap
+    assert guard._has_activity_since(str(transcript), 0) is True
+
+
 def _run_guard_main(monkeypatch, payload, **session):
     """Run guard.main() on payload against a faked session: ctx (tokens, model),
     prev (last recorded level), scoped (memory tool present), has_activity."""
@@ -195,6 +208,9 @@ def _run_guard_main(monkeypatch, payload, **session):
 
 def test_guard_main_fail_open_and_threshold_paths(monkeypatch):
     assert _run_guard_main(monkeypatch, "not json") == ""
+    # Valid JSON that is not a dict (e.g. a bare list) must not crash the
+    # hook with AttributeError on `.get` -- a Stop hook must never fail hard.
+    assert _run_guard_main(monkeypatch, "[1, 2, 3]") == ""
     assert _run_guard_main(monkeypatch, {"stop_hook_active": True}) == ""
     assert _run_guard_main(monkeypatch, {}, ctx=(None, None)) == ""
     assert _run_guard_main(monkeypatch, {}, ctx=(100, "opus")) == ""
