@@ -31,6 +31,11 @@ import os
 import sys
 from datetime import datetime, timezone
 
+try:
+    import subagent_codex
+except ImportError:
+    subagent_codex = None
+
 # Import the shared parsing/pricing core from the sibling tools/ directory.
 _TOOLS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools")
 sys.path.insert(0, _TOOLS)
@@ -95,6 +100,7 @@ def _recompute_totals(state):
         "cache_tokens": 0,
         "tool_uses": 0,
         "cost_usd": 0.0,
+        "billed_tokens": 0,
         "context_tokens": 0,
         "web_search_requests": 0,
         "web_fetch_requests": 0,
@@ -104,11 +110,22 @@ def _recompute_totals(state):
         totals["output_tokens"] += entry.get("output_tokens", 0)
         totals["cache_tokens"] += entry.get("cache_tokens", 0)
         totals["tool_uses"] += entry.get("tool_uses", 0)
-        totals["cost_usd"] += entry.get("cost_usd", 0.0)
+        cost = entry.get("cost_usd", 0.0)
+        if cost is None or totals["cost_usd"] is None:
+            totals["cost_usd"] = None
+        else:
+            totals["cost_usd"] += cost
+        totals["billed_tokens"] += entry.get(
+            "billed_tokens",
+            entry.get("input_tokens", 0)
+            + entry.get("output_tokens", 0)
+            + entry.get("cache_tokens", 0),
+        )
         totals["context_tokens"] += entry.get("context_tokens", 0)
         totals["web_search_requests"] += entry.get("web_search_requests", 0)
         totals["web_fetch_requests"] += entry.get("web_fetch_requests", 0)
-    totals["cost_usd"] = round(totals["cost_usd"], 4)
+    if totals["cost_usd"] is not None:
+        totals["cost_usd"] = round(totals["cost_usd"], 4)
     state["totals"] = totals
 
 
@@ -150,12 +167,19 @@ def main():
         sys.exit(0)
 
     session_id = data.get("session_id") or "unknown"
-    transcript_path = data.get("transcript_path")
+    transcript_path = data.get("agent_transcript_path") or data.get("transcript_path")
 
     state = _load_state(session_id)
 
     # Primary: this subagent's own transcript (cleanest, exact attribution).
-    if transcript_path and os.path.basename(transcript_path).startswith("agent-"):
+    entry = (
+        subagent_codex.read_entry(data)
+        if subagent_codex and data.get("agent_transcript_path")
+        else None
+    )
+    if entry is not None:
+        state["agents"][data["agent_id"]] = entry
+    elif transcript_path and os.path.basename(transcript_path).startswith("agent-"):
         _update_from_transcript(state, transcript_path)
         _sweep_siblings(state, transcript_path)
 

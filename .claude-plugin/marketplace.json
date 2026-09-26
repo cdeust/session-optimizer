@@ -12,8 +12,8 @@
     {
       "name": "context-guard",
       "source": "./plugins/context-guard",
-      "description": "Context-budget guard: a Stop hook enforces a per-model checkpoint protocol — at the WARN threshold it writes a mechanical checkpoint stub and delegates persistence to a budgeted memory-writer subagent as a reflection pause, at the hard cap it forces checkpoint-then-clear. A SubagentStop tracker surfaces true session spend (main thread + subagents). Default protocol uses only vanilla Claude Code; a scoped memory layer is detected at runtime when installed.",
-      "version": "2.0.2",
+      "description": "Context-budget guard: a Stop hook enforces a per-model checkpoint protocol — at the WARN threshold it writes a mechanical checkpoint stub (Claude: delegates persistence to a budgeted memory-writer subagent as a reflection pause; Codex: the model writes the stub itself), at the hard cap it forces checkpoint-then-clear. On Claude Code a SubagentStop tracker surfaces true session spend (main thread + subagents). Default protocol uses only vanilla Claude Code; a scoped memory layer is detected at runtime when installed.",
+      "version": "2.1.0",
       "author": {
         "name": "Clement Deust",
         "email": "admin@ai-architect.tools"
@@ -23,6 +23,7 @@
       "license": "MIT",
       "keywords": [
         "claude-code",
+        "codex",
         "context-window",
         "token-budget",
         "checkpoint",

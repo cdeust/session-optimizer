@@ -1,0 +1,34 @@
+{
+  "name": "context-guard",
+  "version": "2.1.0",
+  "description": "Context-budget guard: a Stop hook enforces a per-model checkpoint protocol, writing a mechanical checkpoint stub at the WARN threshold and forcing checkpoint-then-clear at the hard cap. On Codex the model writes the stub directly (no subagent-spawn tool is assumed); on Claude Code the WARN reflection delegates to a budgeted memory-writer subagent, and a SubagentStop tracker surfaces true session spend.",
+  "author": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools",
+    "url": "https://github.com/cdeust"
+  },
+  "homepage": "https://github.com/cdeust/session-optimizer/tree/main/plugins/context-guard",
+  "repository": "https://github.com/cdeust/session-optimizer",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "claude-code",
+    "context-window",
+    "token-budget",
+    "checkpoint",
+    "stop-hook",
+    "session-management"
+  ],
+  "interface": {
+    "displayName": "Context Guard",
+    "shortDescription": "Enforce a per-model context checkpoint before the window fills",
+    "longDescription": "A Stop hook measures the session's current context size against per-model WARN/hard thresholds. At WARN it writes a mechanical checkpoint stub (git branch, last commit, modified files, token count) and blocks the stop once as a reflection pause so the model persists a semantic summary before continuing. At the hard cap it forces the checkpoint-then-clear procedure.",
+    "developerName": "Clement Deust",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "websiteURL": "https://github.com/cdeust/session-optimizer",
+    "privacyPolicyURL": "https://github.com/cdeust/session-optimizer/blob/main/PRIVACY.md"
+  }
+}
