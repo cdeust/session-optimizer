@@ -25,6 +25,13 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --require-hashes -r requirements-dev.lock
 
+      # #39: CI runs the lock, not requirements-dev.txt, so a bump that
+      # lands in one without the other tests silently stale. Dependabot
+      # cannot regenerate this lock itself (see tools/check-lock-drift.py
+      # docstring for why); this guard is the substitute.
+      - name: Verify requirements-dev.lock matches requirements-dev.txt
+        run: python tools/check-lock-drift.py requirements-dev.txt requirements-dev.lock
+
       # Pinned rather than taken from apt: the distro build is several releases
       # behind, and the two versions do not report the same findings — it raises
       # SC2317 where 0.11.0 raises SC2329, and SC2015 on `A && B || true` which
@@ -49,6 +56,9 @@ jobs:
 
       - name: Enforce Python coding standard
         run: ruff check plugins tests
+
+      - name: Enforce Python formatting
+        run: ruff format --check plugins tests
 
       - name: Statusline heat-track tests
         run: bash tests/statusline/test_heat_rgb.sh
