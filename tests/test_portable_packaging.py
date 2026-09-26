@@ -1,4 +1,5 @@
-"""Cross-host packaging contracts for the portable refine-gate skill."""
+"""Cross-host packaging contracts for the portable refine-gate skill and the
+Codex-installable context-guard plugin."""
 
 from __future__ import annotations
 
@@ -8,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "refine-gate"
+CONTEXT_GUARD = ROOT / "plugins" / "context-guard"
 
 
 def _json(path: Path) -> dict:
@@ -48,3 +50,42 @@ def test_refine_skill_uses_portable_agent_skills_frontmatter():
 
     assert keys == {"name", "description"}
     assert "name: refine" in frontmatter
+
+
+def test_codex_plugin_manifest_for_context_guard_has_no_skills_field():
+    """context-guard ships hooks, not skills -- the manifest must not claim a
+    skills directory that does not exist (the inverse of refine-gate's
+    skills-only shape above)."""
+    manifest = _json(CONTEXT_GUARD / ".codex-plugin" / "plugin.json")
+
+    assert manifest["name"] == CONTEXT_GUARD.name
+    assert (
+        manifest["version"]
+        == _json(CONTEXT_GUARD / ".claude-plugin" / "plugin.json")["version"]
+    )
+    assert "skills" not in manifest
+    assert "hooks" not in manifest
+    assert "mcpServers" not in manifest
+
+
+def test_codex_marketplace_resolves_context_guard_from_repo_root():
+    """Codex reads the plugin's own hooks/hooks.json (same file, same Stop/
+    SubagentStop keys Claude uses) -- verified against the owner's real
+    ~/.codex/config.toml trust keys `context-guard@session-optimizer-
+    marketplace:hooks/hooks.json:stop:0:0` and `...:subagent_stop:0:0`; no
+    Codex-specific hooks file is required, so this marketplace entry only
+    needs to resolve the plugin directory correctly."""
+    marketplace = _json(ROOT / ".agents" / "plugins" / "marketplace.json")
+    entry = next(p for p in marketplace["plugins"] if p["name"] == "context-guard")
+
+    assert entry["source"] == {
+        "source": "local",
+        "path": "./plugins/context-guard",
+    }
+    assert (ROOT / entry["source"]["path"]).resolve() == CONTEXT_GUARD.resolve()
+    assert entry["policy"] == {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL",
+    }
+    assert entry["category"] == "Productivity"
+    assert (CONTEXT_GUARD / "hooks" / "hooks.json").is_file()

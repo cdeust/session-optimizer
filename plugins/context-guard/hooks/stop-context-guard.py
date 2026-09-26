@@ -10,18 +10,25 @@ Contract:
   | Sonnet 4.6         | ~180K             | 200K             | cost discipline (window is 1M)       |
   | Haiku 4.5          | ~120K             | 170K             | 200K IS the window; leave ~30K of    |
   |                    |                   |                  | headroom for the checkpoint turn     |
+  | gpt-6-astra (Codex)| 180K              | 220K             | measured window 258.4K (see          |
+  |                    |                   |                  | FALLBACK_THRESHOLDS "astra" comment) |
 
   Thresholds are loaded from ~/.claude/ctxguard-thresholds.json (shared with
   the statusline so both layers stay on par by construction); the table above
   is the embedded fallback when the config is absent or malformed. First
   substring match against the lowercased model id wins.
 
-  Context tokens are measured exactly as Claude Code's `used_percentage`:
-      input_tokens + cache_creation_input_tokens + cache_read_input_tokens
-  read from the most recent assistant turn in the transcript.
+  Context tokens: for Claude, Claude Code's own `used_percentage` -- input_
+  tokens + cache_creation_input_tokens + cache_read_input_tokens read from the
+  most recent assistant turn. For Codex (transcript first-line dispatch, see
+  host_detect.py), the most recent `token_usage_record.usage.input_tokens`
+  alone (cached_input_tokens is a subset there, not additive; see
+  transcript_codex.py for the sourced arithmetic).
 
   Precondition:  invoked as a Stop hook with JSON on stdin containing
-                 session_id, transcript_path, cwd, stop_hook_active.
+                 session_id, transcript_path, cwd, stop_hook_active. Codex
+                 additionally sends hook_event_name/model/turn_id/
+                 permission_mode -- unused fields are harmless.
   Postcondition: below WARN -> exit 0, no output, no side effects; WARN..HARD
                  -> write the mechanical checkpoint stub and block the stop
                  exactly once as a reflection pause (session resumes); >=HARD
@@ -46,21 +53,22 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-# Six sibling modules in this same hooks/ directory split the concerns this
-# file used to carry alone: checkpoint_protocol (protocol text), checkpoint_stub
-# (stub-markdown render), thresholds (config-table lookup), transcript_lines
-# (line-content predicates), transcript_scan (chunked-line walk), subagent_spend
-# (spend-aggregate read + render). Named failure mode: a manual install copied
-# only this script. A Stop hook must never fail hard, so degrade to inert
-# rather than erroring every stop.
+# Eight sibling modules in this hooks/ directory split the concerns this file
+# used to carry alone (protocol text, stub render, config lookup, Claude/Codex
+# line predicates, chunked-line walk, host dispatch, spend render) -- see each
+# module's own docstring. Named failure mode: a manual install copied only
+# this script. A Stop hook must never fail hard, so degrade to inert rather
+# than erroring every stop.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import checkpoint_protocol
     import checkpoint_stub
+    import host_detect
     import subagent_spend
     import thresholds as thresholds_mod
     import transcript_lines
     import transcript_scan
+    import usage_reader
 except ImportError:
     sys.exit(0)
 
@@ -73,6 +81,11 @@ except ImportError:
 CONFIG_PATH = os.path.join(
     os.path.expanduser("~"), ".claude", "ctxguard-thresholds.json"
 )
+# "astra" row source: measured 2026-09-26 against a real Codex rollout
+# (~/.codex/sessions/2026/09/26/rollout-2026-09-26T01-14-28-*.jsonl),
+# session_meta.payload.context_window and every event_msg/token_count.info.
+# model_context_window == 258400 for gpt-6-astra. warn/hard are ~70%/~85% of
+# that window (same headroom rationale as the Haiku row above it).
 FALLBACK_THRESHOLDS = {
     "models": [
         {"match": "fable", "warn": 120_000, "hard": 160_000},
@@ -80,6 +93,7 @@ FALLBACK_THRESHOLDS = {
         {"match": "haiku", "warn": 120_000, "hard": 170_000},
         {"match": "sonnet", "warn": 180_000, "hard": 200_000},
         {"match": "opus", "warn": 180_000, "hard": 200_000},
+        {"match": "astra", "warn": 180_000, "hard": 220_000},
     ],
     "default": {"warn": 180_000, "hard": 200_000},
 }
@@ -142,7 +156,7 @@ def _scan_budget() -> transcript_scan.ScanBudget:
 
 
 def _read_last_usage(transcript_path: str):
-    """Return (context_tokens, model_id) from the most recent assistant usage,
+    """Return (context_tokens, model_id) from the most recent usage record,
     or (None, None) if unavailable.
 
     Precondition:  transcript_path is a path string (or None).
@@ -150,27 +164,11 @@ def _read_last_usage(transcript_path: str):
                    usage record within the scanned tail, else (None, None) —
                    fails closed whether the scan hit TAIL_MAX_BYTES or reached
                    the start of the file cleanly; on any missing/unreadable
-                   file or non-str path, also (None, None).
-
-    Bounded reverse scan via transcript_scan.iter_lines_backward: peak memory
-    is O(TAIL_CHUNK), not O(file size).
+                   file or non-str path, also (None, None). Host-dispatched
+                   (Claude vs Codex) via the sibling usage_reader module;
+                   bounded reverse scan, peak memory O(TAIL_CHUNK).
     """
-    try:
-        size = os.stat(transcript_path).st_size
-    except (OSError, TypeError, ValueError):
-        return None, None
-    if size == 0:
-        return None, None
-
-    try:
-        with open(transcript_path, "rb") as fh:
-            lines = transcript_scan.iter_lines_backward(
-                fh, size, transcript_scan.ScanResult(), _scan_budget()
-            )
-            hit = transcript_scan.first_match(lines, _usage_from_line)
-    except (OSError, TypeError, ValueError):
-        return None, None
-    return hit if hit is not None else (None, None)
+    return usage_reader.read_last_usage(transcript_path, _scan_budget())
 
 
 def _subagent_summary(session_id: str):
@@ -190,15 +188,8 @@ def _subagent_line(session_id: str) -> str:
     return subagent_spend.render_spend_line(*_subagent_summary(session_id))
 
 
-def _normalize_since_offset(since_offset: int, size: int) -> int:
-    """A stale offset (from a rotated/replaced transcript) cannot be trusted
-    as "caught up" -- rescan from 0 instead. Clamp negative input to 0."""
-    since_offset = max(0, since_offset or 0)
-    return 0 if since_offset > size else since_offset
-
-
 def _has_activity_since(transcript_path: str, since_offset: int) -> bool:
-    """True if the transcript contains at least one tool_use content block
+    """True if the transcript contains at least one tool-use-equivalent block
     at or after byte `since_offset`.
 
     Fail-open: if the scan cap (TAIL_MAX_BYTES) is hit before reaching EOF,
@@ -208,38 +199,20 @@ def _has_activity_since(transcript_path: str, since_offset: int) -> bool:
     a clean scan to EOF within the byte cap found none. since_offset larger
     than the current file size means the offset is stale (the transcript was
     replaced/rotated between fires) and cannot be trusted as "caught up" --
-    rescan from 0 instead of concluding there is nothing new.
+    rescan from 0 instead of concluding there is nothing new. Host-dispatched
+    (Claude `tool_use` vs Codex `function_call`/`custom_tool_call`) via the
+    sibling usage_reader module.
 
     Precondition:  transcript_path is a path string (or None); since_offset
                    is a non-negative int (0 scans the whole file).
-    Postcondition: True if a tool_use block was found, the scan cap was hit
-                   before EOF, or the file could not be read/parsed at all
-                   (fail-open); False only after a clean scan to EOF within
-                   the byte cap found none.
+    Postcondition: True if a tool-use-equivalent block was found, the scan
+                   cap was hit before EOF, or the file could not be
+                   read/parsed at all (fail-open); False only after a clean
+                   scan to EOF within the byte cap found none.
     """
-    try:
-        size = os.stat(transcript_path).st_size
-    except (OSError, TypeError, ValueError):
-        return True  # can't tell -> don't silently skip
-
-    since_offset = _normalize_since_offset(since_offset, size)
-    if since_offset == size:
-        return False  # nothing appended since last fire / session start
-
-    try:
-        with open(transcript_path, "rb") as fh:
-            result = transcript_scan.ScanResult()
-            rng = transcript_scan.ByteRange(since_offset, size)
-            lines = transcript_scan.iter_lines_forward(fh, rng, result, _scan_budget())
-            found = transcript_scan.first_match(
-                lines, lambda line: True if _line_has_tool_use(line) else None
-            )
-    except (OSError, TypeError, ValueError):
-        return True
-
-    if found:
-        return True
-    return result.reason == "cap"  # clean EOF with no hit -> False
+    return usage_reader.has_activity_since(
+        transcript_path, since_offset, _scan_budget()
+    )
 
 
 def _line_has_tool_use(line: str) -> bool:
@@ -276,6 +249,7 @@ class FireEvent:
     model_id: str
     level: str
     stub_path: str = ""
+    host: str = "claude"
 
 
 def _sub_state_line(session_id: str) -> str:
@@ -416,13 +390,27 @@ class CheckpointReasons:
     block_reason: object
 
 
-def _checkpoint_reasons(cwd: str, warn: int, hard: int) -> CheckpointReasons:
-    """Build a CheckpointReasons, choosing the generic or scoped wording at
-    runtime by whether a scoped memory layer is detected for `cwd`. Runtime
-    detection means the scoped wording is emitted only when the layer is
-    actually installed; everyone else gets the stub-file protocol, which
-    references vanilla Claude Code tools only."""
-    if checkpoint_protocol.detect_memory_tool(cwd) is not None:
+def _checkpoint_reasons(cwd: str, warn: int, hard: int, host: str) -> CheckpointReasons:
+    """Build a CheckpointReasons, choosing among four wording variants at
+    runtime: {generic, scoped} x {claude, codex}. Scoped is chosen when a
+    memory layer is detected for `cwd`; Codex wording drops the
+    memory-writer-subagent delegate offer (no such tool is verified to exist
+    on that host, see checkpoint_protocol.py's codex variants) in favor of a
+    direct-write-only instruction."""
+    scoped = checkpoint_protocol.detect_memory_tool(cwd) is not None
+    if host == "codex":
+        warn_fn = (
+            checkpoint_protocol.warn_reason_codex_scoped
+            if scoped
+            else checkpoint_protocol.warn_reason_codex
+        )
+        block_fn = (
+            checkpoint_protocol.block_reason_codex_scoped
+            if scoped
+            else checkpoint_protocol.block_reason_codex
+        )
+        return CheckpointReasons(warn, hard, warn_fn, block_fn)
+    if scoped:
         return CheckpointReasons(
             warn,
             hard,
@@ -432,6 +420,15 @@ def _checkpoint_reasons(cwd: str, warn: int, hard: int) -> CheckpointReasons:
     return CheckpointReasons(
         warn, hard, checkpoint_protocol.warn_reason, checkpoint_protocol.block_reason
     )
+
+
+def _warn_action_verb(host: str) -> str:
+    """The WARN systemMessage's action clause: Claude can delegate to a
+    memory-writer subagent; Codex (no verified subagent-spawn tool, see
+    checkpoint_protocol.py's codex variants) writes the stub itself."""
+    if host == "codex":
+        return "instructing the model to write the checkpoint stub directly"
+    return "spawning the memory-writer subagent to persist the semantic checkpoint"
 
 
 def _fire_payload(ev: FireEvent, reasons: CheckpointReasons, sub_line: str) -> dict:
@@ -453,8 +450,8 @@ def _fire_payload(ev: FireEvent, reasons: CheckpointReasons, sub_line: str) -> d
         + sub_line,
         "systemMessage": (
             f"[context-guard] {ev.ctx:,} tokens ≥ {reasons.warn:,} checkpoint threshold "
-            f"({(ev.model_id or 'model')}) — spawning the memory-writer subagent to "
-            f"persist the semantic checkpoint, then the session continues. "
+            f"({(ev.model_id or 'model')}) — {_warn_action_verb(ev.host)}, "
+            f"then the session continues. "
             f"Mechanical stub: {ev.stub_path or 'n/a'}. Hard stop at {reasons.hard:,}."
             + sub_line
         ),
@@ -469,10 +466,16 @@ def main():
     session_id = data.get("session_id") or "unknown"
     transcript_path = data.get("transcript_path")
     cwd = data.get("cwd") or os.getcwd()
+    host = host_detect.detect_host(transcript_path)
 
     ctx, model_id = _read_last_usage(transcript_path)
     if ctx is None:
         _exit()
+    # Codex's token_usage_record carries no model field (transcript_codex.py);
+    # the Stop payload sends `model` directly instead (required field per the
+    # `stop.command.input` schema). No-op for Claude, which has no top-level
+    # "model" key in its Stop payload.
+    model_id = model_id or data.get("model")
 
     warn, hard = _thresholds(model_id)
     level = _classify_level(ctx, warn, hard)
@@ -483,11 +486,11 @@ def main():
     if not _should_fire(state, level, transcript_path):
         _exit()
 
-    ev = FireEvent(session_id, cwd, ctx, model_id, level)
+    ev = FireEvent(session_id, cwd, ctx, model_id, level, host=host)
     ev.stub_path = _write_stub(ev)
     _save_state(session_id, _next_state(state, ev, transcript_path))
 
-    reasons = _checkpoint_reasons(cwd, warn, hard)
+    reasons = _checkpoint_reasons(cwd, warn, hard, host)
     _exit(_fire_payload(ev, reasons, _subagent_line(session_id)))
 
 

@@ -39,9 +39,77 @@ if str(TOOLS) not in sys.path:
 protocol = _load(
     "session_optimizer_checkpoint_protocol", HOOKS / "checkpoint_protocol.py"
 )
+host_detect = _load("session_optimizer_host_detect", HOOKS / "host_detect.py")
+transcript_codex = _load(
+    "session_optimizer_transcript_codex", HOOKS / "transcript_codex.py"
+)
 guard = _load("session_optimizer_stop_guard", HOOKS / "stop-context-guard.py")
 usage_core = _load("session_optimizer_usage_core", TOOLS / "subagent_usage.py")
 tracker = _load("session_optimizer_subagent_tracker", HOOKS / "subagent-tracker.py")
+
+
+def _codex_session_meta() -> str:
+    """A Codex rollout's line 0 (verified shape: codex-cli 0.157.1 real
+    rollout, ~/.codex/sessions/2026/09/26/rollout-2026-09-26T01-14-28-*.jsonl).
+    Synthetic values only -- structure copied, no private content."""
+    return json.dumps(
+        {
+            "type": "session_meta",
+            "payload": {
+                "session_id": "01a0dad9",
+                "cwd": "/x",
+                "model_provider": "openai",
+            },
+        }
+    )
+
+
+def _codex_usage_line(
+    input_tokens: int, output_tokens: int = 10, cached_input_tokens: int = 0
+) -> str:
+    """A Codex `token_usage_record` line (verified shape/arithmetic: see
+    transcript_codex.py's module docstring). `cached_input_tokens` defaults
+    to 0 but callers proving the subset-not-additive contract pass a nonzero
+    value >0 and <input_tokens, matching the real rollout's own invariant
+    (e.g. input_tokens=28425, cached_input_tokens=6912)."""
+    total = input_tokens + output_tokens
+    return json.dumps(
+        {
+            "type": "token_usage_record",
+            "payload": {
+                "thread_id": "t",
+                "turn_id": "u",
+                "session_id": "01a0dad9",
+                "usage": {
+                    "input_tokens": input_tokens,
+                    "cached_input_tokens": cached_input_tokens,
+                    "cache_write_input_tokens": 0,
+                    "output_tokens": output_tokens,
+                    "reasoning_output_tokens": 0,
+                    "total_tokens": total,
+                },
+                "turn_token_usage": {"total_tokens": total},
+                "thread_token_usage": {"total_tokens": total},
+            },
+        }
+    )
+
+
+def _codex_tool_call_line(name: str = "exec") -> str:
+    """A Codex `response_item`/`function_call` line (verified shape: real
+    rollout ordinal 39, name="wait"; "exec" here is a synthetic stand-in)."""
+    return json.dumps(
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "function_call",
+                "id": "fc_1",
+                "name": name,
+                "arguments": "{}",
+                "call_id": "call_1",
+            },
+        }
+    )
 
 
 def test_protocol_detects_project_tool_and_renders_both_contracts(
@@ -251,6 +319,200 @@ def test_has_activity_since_offset_equal_size_is_false_even_with_earlier_tool_us
     transcript.write_text(tool_use_line + "\n")
     since_offset = transcript.stat().st_size  # == size: exactly caught up
     assert guard._has_activity_since(str(transcript), since_offset) is False
+
+
+def test_host_detect_dispatches_on_first_record_type(tmp_path):
+    codex_t = tmp_path / "codex.jsonl"
+    codex_t.write_text(_codex_session_meta() + "\n" + _codex_usage_line(1000) + "\n")
+    assert host_detect.detect_host(str(codex_t)) == "codex"
+
+    claude_t = tmp_path / "claude.jsonl"
+    claude_t.write_text(json.dumps({"message": {"usage": {"input_tokens": 1}}}) + "\n")
+    assert host_detect.detect_host(str(claude_t)) == "claude"
+
+    assert host_detect.detect_host(None) == "claude"
+    assert host_detect.detect_host(str(tmp_path / "missing.jsonl")) == "claude"
+
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("")
+    assert host_detect.detect_host(str(empty)) == "claude"
+
+    garbage = tmp_path / "garbage.jsonl"
+    garbage.write_text("not json\n")
+    assert host_detect.detect_host(str(garbage)) == "claude"
+
+
+def test_transcript_codex_usage_and_tool_call_predicates():
+    assert transcript_codex.usage_from_line(_codex_usage_line(28425, 178)) == (
+        28425,
+        None,
+    )
+    # cached_input_tokens is a SUBSET of input_tokens, not additive (real
+    # rollout: input_tokens=28425, cached_input_tokens=6912, ctx must stay
+    # 28425 -- a mutant that adds it in would report 35337 instead).
+    assert transcript_codex.usage_from_line(
+        _codex_usage_line(28425, 178, cached_input_tokens=6912)
+    ) == (28425, None)
+    assert transcript_codex.usage_from_line(_codex_usage_line(0, 5)) is None
+    assert transcript_codex.usage_from_line("not json") is None
+    assert transcript_codex.usage_from_line("") is None
+    assert (
+        transcript_codex.usage_from_line(json.dumps({"type": "turn_context"})) is None
+    )
+
+    assert transcript_codex.line_has_tool_call(_codex_tool_call_line()) is True
+    assert (
+        transcript_codex.line_has_tool_call(
+            json.dumps({"type": "response_item", "payload": {"type": "message"}})
+        )
+        is False
+    )
+    assert transcript_codex.line_has_tool_call("not json") is False
+    assert transcript_codex.line_has_tool_call("") is False
+
+
+def test_read_last_usage_and_activity_dispatch_to_codex(tmp_path, monkeypatch):
+    monkeypatch.setattr(guard, "TAIL_CHUNK", 64)
+    monkeypatch.setattr(guard, "TAIL_MAX_BYTES", 4096)
+    head = _codex_session_meta() + "\n" + _codex_usage_line(28425, 178) + "\n"
+    transcript = tmp_path / "codex.jsonl"
+    transcript.write_text(head + _codex_tool_call_line() + "\n")
+
+    assert guard._read_last_usage(str(transcript)) == (28425, None)
+    assert guard._has_activity_since(str(transcript), 0) is True
+    offset_before_tool = len(head.encode("utf-8"))
+    assert guard._has_activity_since(str(transcript), offset_before_tool) is True
+    assert (
+        guard._has_activity_since(str(transcript), transcript.stat().st_size) is False
+    )
+
+
+def _codex_stop_payload(tmp_path, transcript, session_id="codex-s1", **overrides):
+    """A Stop hook input shaped exactly like the `stop.command.input` JSON
+    Schema embedded in the `codex` binary (codex-cli 0.157.1): cwd,
+    hook_event_name, last_assistant_message, model, permission_mode,
+    session_id, stop_hook_active, transcript_path, turn_id are ALL required
+    fields on that schema."""
+    payload = {
+        "cwd": str(tmp_path),
+        "hook_event_name": "Stop",
+        "last_assistant_message": "done",
+        "model": "gpt-6-astra",
+        "permission_mode": "default",
+        "session_id": session_id,
+        "stop_hook_active": False,
+        "transcript_path": str(transcript),
+        "turn_id": "turn-1",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _write_codex_transcript(tmp_path, input_tokens, name="rollout.jsonl"):
+    transcript = tmp_path / name
+    transcript.write_text(
+        _codex_session_meta()
+        + "\n"
+        + _codex_usage_line(input_tokens, 200)
+        + "\n"
+        + _codex_tool_call_line()
+        + "\n"
+    )
+    return transcript
+
+
+def test_guard_main_codex_warn_payload_real_transcript(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(guard, "STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(guard, "_thresholds", lambda _model: (180_000, 200_000))
+    transcript = _write_codex_transcript(tmp_path, 185_000)
+
+    stdin = io.StringIO(json.dumps(_codex_stop_payload(tmp_path, transcript)))
+    stdout = io.StringIO()
+    monkeypatch.setattr(guard.sys, "stdin", stdin)
+    monkeypatch.setattr(guard.sys, "stdout", stdout)
+    with pytest.raises(SystemExit) as exc:
+        guard.main()
+    assert exc.value.code == 0
+
+    decision = json.loads(stdout.getvalue())
+    assert decision["decision"] == "block"
+    assert "memory-writer" not in decision["reason"]
+    assert "write the checkpoint stub directly" in decision["systemMessage"]
+    assert "gpt-6-astra" in decision["systemMessage"]
+
+
+def test_guard_main_codex_hard_payload_is_fire_once_per_session(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(guard, "STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(guard, "_thresholds", lambda _model: (180_000, 200_000))
+    transcript = _write_codex_transcript(tmp_path, 225_000)
+    payload = _codex_stop_payload(tmp_path, transcript, session_id="codex-hard")
+
+    def run_once():
+        stdin = io.StringIO(json.dumps(payload))
+        stdout = io.StringIO()
+        monkeypatch.setattr(guard.sys, "stdin", stdin)
+        monkeypatch.setattr(guard.sys, "stdout", stdout)
+        with pytest.raises(SystemExit) as exc:
+            guard.main()
+        assert exc.value.code == 0
+        return stdout.getvalue()
+
+    first = json.loads(run_once())
+    assert first["decision"] == "block"
+    # Loop guard: same session, same (already-fired) level, no new activity
+    # appended since -> the second Stop must be silent, never re-block.
+    assert run_once() == ""
+
+
+def test_guard_main_codex_skips_when_no_activity_since_last_fire(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(guard, "STATE_DIR", str(tmp_path))
+    monkeypatch.setattr(guard, "_thresholds", lambda _model: (180_000, 200_000))
+    transcript = tmp_path / "no_activity.jsonl"
+    transcript.write_text(
+        _codex_session_meta() + "\n" + _codex_usage_line(185_000, 200) + "\n"
+    )
+    payload = _codex_stop_payload(tmp_path, transcript, session_id="codex-quiet")
+
+    stdin = io.StringIO(json.dumps(payload))
+    stdout = io.StringIO()
+    monkeypatch.setattr(guard.sys, "stdin", stdin)
+    monkeypatch.setattr(guard.sys, "stdout", stdout)
+    with pytest.raises(SystemExit) as exc:
+        guard.main()
+    assert exc.value.code == 0
+    assert stdout.getvalue() == ""
+
+
+def test_guard_subprocess_fires_block_on_a_codex_shaped_stop_payload(tmp_path):
+    """External gate: feed the installed hook a Codex-shaped Stop payload as
+    a real subprocess (not a monkeypatched stand-in) and show the decision
+    output, exactly as `codex` itself would invoke it."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    transcript = _write_codex_transcript(tmp_path, 185_000)
+    payload = _codex_stop_payload(
+        tmp_path, transcript, session_id=f"codex-subproc-{os.getpid()}"
+    )
+
+    proc = subprocess.run(
+        [sys.executable, str(HOOKS / "stop-context-guard.py")],
+        check=False,
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={**os.environ, "HOME": str(fake_home)},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip(), "expected a decision:block payload on stdout"
+    decision = json.loads(proc.stdout)
+    assert decision["decision"] == "block"
+    state_file = Path("/tmp") / f"zetetic-ctxguard-{payload['session_id']}.json"
+    if state_file.exists():
+        state_file.unlink()
 
 
 def _run_guard_main(monkeypatch, payload, **session):
@@ -542,10 +804,13 @@ def test_readme_test_the_tracker_snippet_cleans_up_its_state_file():
 GUARD_SIBLING_MODULES = [
     "checkpoint_protocol",
     "checkpoint_stub",
+    "host_detect",
     "subagent_spend",
     "thresholds",
+    "transcript_codex",
     "transcript_lines",
     "transcript_scan",
+    "usage_reader",
 ]
 
 
@@ -555,7 +820,7 @@ def test_guard_degrades_to_inert_when_a_sibling_module_is_missing(
 ):
     """A manual install that copies only the entry-point script (the named
     failure mode in stop-context-guard.py's own module docstring) must
-    degrade to inert -- exit 0, no stdout -- for EACH of its five sibling
+    degrade to inert -- exit 0, no stdout -- for EACH of its sibling
     modules, never crash with an ImportError traceback that would contradict
     the Stop hook's own 'never fail hard' contract. Exercised as a real
     subprocess against a copy of hooks/ with exactly one module deleted, so

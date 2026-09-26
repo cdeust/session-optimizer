@@ -1,8 +1,9 @@
 """checkpoint_protocol.py — compose the Stop guard's checkpoint instructions.
 
 stop-context-guard.py measures context usage and decides WHEN to act; this
-module owns WHAT the model is told. Each level (warn / hard) has two
-variants, chosen at runtime by `detect_memory_tool`:
+module owns WHAT the model is told. Each level (warn / hard) has up to four
+variants, chosen at runtime by `detect_memory_tool` (generic vs scoped) and
+by the caller's own host dispatch (Claude vs Codex, see host_detect.py):
 
   * generic (default) — references only tools that exist in vanilla
     Claude Code: the memory-writer subagent fills the mechanical stub
@@ -11,10 +12,14 @@ variants, chosen at runtime by `detect_memory_tool`:
     (`tools/memory-tool.sh` in the project root or ~/.claude/tools/):
     the checkpoint routes through the store's block verbs and durable
     facts through its remember endpoint.
+  * `*_codex` / `*_codex_scoped` — same content, minus the memory-writer
+    subagent delegate offer: Codex has no verified subagent-spawn tool
+    a hook-authored instruction can name reliably, so the model always
+    writes the checkpoint itself directly.
 
 Detection runs per invocation, so an outside user without the memory
 layer never sees store-specific wording (memory verbs, MEMORY_AGENT_ID,
-cortex:remember).
+cortex:remember), and a Claude user never sees Codex wording.
 """
 
 import os
@@ -128,6 +133,63 @@ def block_reason(ctx: int, stub_path: str, hard: int) -> str:
         f"changed since.\n"
         f"2. If important decisions are not yet durable, fold them into the "
         f"checkpoint's errors-and-fixes section.\n" + _BLOCK_FOOTER
+    )
+
+
+def warn_reason_codex(ctx: int, stub_path: str, warn: int, hard: int) -> str:
+    """WARN instructions for Codex: no verified subagent-spawn tool exists on
+    this host (the sampled rollout's function_call/custom_tool_call names
+    carried no agent-spawning primitive, and Codex plugins have no
+    Claude-Code-style named subagent_type registry), so the model writes the
+    checkpoint itself -- no delegate-fallback paragraph."""
+    return (
+        _warn_header(ctx, warn, hard) + f"2. Write it directly: fill the stub file at "
+        f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place, "
+        f"replacing its placeholders with the distilled summary.\n" + _warn_footer(hard)
+    )
+
+
+def warn_reason_codex_scoped(ctx: int, stub_path: str, warn: int, hard: int) -> str:
+    """WARN instructions for Codex when a scoped memory layer is installed."""
+    return (
+        _warn_header(ctx, warn, hard)
+        + f"2. Write it directly: MEMORY_AGENT_ID=<your-scope> "
+        f"tools/memory-tool.sh rethink /memories/<your-scope>/checkpoint.md "
+        f'"<distilled summary>", plus one remember call per WHY-level fact '
+        f"(agent_topic-scoped) — or, if the scoped store is unreachable, fill "
+        f"the stub file at "
+        f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place.\n"
+        + _warn_footer(hard)
+    )
+
+
+def block_reason_codex(ctx: int, stub_path: str, hard: int) -> str:
+    """HARD instructions for Codex: same as `block_reason` (already
+    delegate-free at the HARD level), kept as a distinct name so callers
+    never need a host-conditional at the use site."""
+    return (
+        _block_header(ctx, hard)
+        + f"1. Write (or update) your semantic checkpoint ({SCHEMA}) by filling "
+        f"the stub file at "
+        f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place.\n"
+        f"2. If important decisions are not yet durable, fold them into the "
+        f"checkpoint's errors-and-fixes section.\n" + _BLOCK_FOOTER
+    )
+
+
+def block_reason_codex_scoped(ctx: int, stub_path: str, hard: int) -> str:
+    """HARD instructions for Codex when a scoped memory layer is installed."""
+    return (
+        _block_header(ctx, hard)
+        + f"1. Write (or update) your semantic checkpoint ({SCHEMA}): "
+        f"MEMORY_AGENT_ID=<your-scope> tools/memory-tool.sh rethink "
+        f"/memories/<your-scope>/checkpoint.md — if the scoped store is "
+        f"unreachable, fill the stub file at "
+        f"{stub_path or '~/.claude/memories/checkpoints/latest.md'} in place.\n"
+        f"2. If important decisions are not yet durable, persist them now via "
+        f"the store's remember endpoint (scoped to your agent_topic); "
+        f"otherwise fold them into the checkpoint's errors-and-fixes "
+        f"section.\n" + _BLOCK_FOOTER
     )
 
 

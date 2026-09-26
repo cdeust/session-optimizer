@@ -7,7 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### context-guard 2.0.2
+### context-guard 2.1.0
+
+#### Added
+
+- **Codex support.** The `Stop` guard now runs unmodified on Codex
+  (codex-cli 0.157.1): host detection peeks the transcript's first JSONL
+  record (`type == "session_meta"` -> Codex reader, anything else -> the
+  pre-existing Claude path, byte-identical). Two new sibling modules —
+  `transcript_codex.py` (Codex line predicates: `token_usage_record.usage.
+  input_tokens` as context size, `function_call`/`custom_tool_call` as the
+  activity-gate equivalent of `tool_use`) and `host_detect.py` (the
+  session_meta peek) — plus `usage_reader.py`, which extracts the two
+  transcript reads' I/O orchestration out of `stop-context-guard.py` (host-
+  dispatched, shared bounded scan) so that file shrinks instead of growing.
+  A new per-model threshold row (`gpt-6-astra`: warn 180K / hard 220K,
+  measured window 258,400) and four new `checkpoint_protocol.py` variants
+  (`*_codex[_scoped]`) that drop the memory-writer-subagent delegate offer —
+  no such tool is verified to exist on Codex, so the model always writes the
+  checkpoint stub itself. The `SubagentStop` tracker needed no change: its
+  own `agent-*.jsonl` filename convention already no-ops cleanly against a
+  Codex `agent_transcript_path`. Every fact this integration relies on
+  (hook payload schema, blocking-output contract, token semantics, activity
+  predicate, context-window size, `hooks/hooks.json` reuse) is cited at its
+  primary source in `plugins/context-guard/README.md`'s "Codex support"
+  table — extracted from the `codex` binary's own embedded JSON Schemas and
+  a real `~/.codex/sessions/**/*.jsonl` rollout, not from documentation.
+  Packaging: `.agents/plugins/marketplace.json` now lists context-guard
+  (`session-optimizer-codex` marketplace), and
+  `plugins/context-guard/.codex-plugin/plugin.json` carries the Codex
+  interface metadata (modeled on refine-gate's).
 
 #### Fixed
 

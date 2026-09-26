@@ -1,9 +1,21 @@
 {
   "name": "session-optimizer-codex",
   "interface": {
-    "displayName": "Session Optimizer — Refine Gate"
+    "displayName": "Session Optimizer"
   },
   "plugins": [
+    {
+      "name": "context-guard",
+      "source": {
+        "source": "local",
+        "path": "./plugins/context-guard"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    },
     {
       "name": "refine-gate",
       "source": {

@@ -9,10 +9,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Cross-platform prompt refinement for Codex, Gemini CLI, and Claude Code,
-plus Claude-native context-budget and telemetry controls.** The portable
-`refine-gate` skill binds vague requests to concrete evidence on all three
-hosts. `context-guard` and `statusline` add lifecycle automation where Claude
-Code exposes the required hooks, session files, and statusline metrics.
+plus context-budget and telemetry controls.** The portable `refine-gate`
+skill binds vague requests to concrete evidence on all three hosts.
+`context-guard` enforces a per-model context-budget checkpoint on both
+Claude Code and Codex (each host's own Stop-hook contract). `statusline`
+adds passive telemetry where Claude Code exposes the required metrics.
 
 The repository ships three small, dependency-light, **independently
 installable** packages. Install exactly the ones your host supports and you
@@ -24,7 +25,7 @@ need; none requires the others.
 
 | Plugin | One-line install | What it does |
 |---|---|---|
-| [**context-guard**](plugins/context-guard) | `/plugin install context-guard@session-optimizer-marketplace` | A `Stop` hook enforces a per-model context budget: at the WARN threshold it writes a mechanical checkpoint stub and delegates persistence to a budgeted `memory-writer` subagent as a reflection pause; at the hard cap it forces checkpoint → `/clear` → resume. A `SubagentStop` tracker surfaces true session spend (main thread + subagents). |
+| [**context-guard**](plugins/context-guard) | Claude: `/plugin install context-guard@session-optimizer-marketplace`; Codex: `codex plugin marketplace add cdeust/session-optimizer` + `codex plugin add context-guard@session-optimizer-codex` | A `Stop` hook enforces a per-model context budget: at the WARN threshold it writes a mechanical checkpoint stub — on Claude Code it delegates persistence to a budgeted `memory-writer` subagent as a reflection pause; on Codex the model writes the stub itself (no subagent-spawn tool is assumed) — at the hard cap it forces checkpoint → `/clear` → resume. On Claude Code a `SubagentStop` tracker also surfaces true session spend (main thread + subagents). |
 | [**refine-gate**](plugins/refine-gate) | Claude: `/plugin install refine-gate@session-optimizer-marketplace`; Codex/Gemini: [portable install](plugins/refine-gate/README.md) | A portable skill that binds vague prompt references ("the SSE solution", "like before", "still broken") to concrete artifacts with evidence, then selects an execution strategy from a research-backed table before any code is touched. Claude Code additionally receives an automatic `UserPromptSubmit` hook. |
 | [**statusline**](plugins/statusline) | `/plugin install statusline@session-optimizer-marketplace` | A multi-line status bar: discrete heat-track context bar tied to per-model checkpoint thresholds, one deduplicated cost ledger covering subagent spend, telemetry (tok/s, compactions, cache countdown), rate-limit gauges with burn-rate pacing, and terminal-width fitting. Ships an install skill — after installing, ask Claude to "install the statusline" and it wires everything. |
 
@@ -67,9 +68,9 @@ These plugins make that discipline *visible* (statusline), *automatic*
 
 ```
 .claude-plugin/marketplace.json   # the marketplace (three plugins + deprecated meta shim)
-.agents/plugins/marketplace.json # Codex marketplace (portable refine-gate only)
+.agents/plugins/marketplace.json # Codex marketplace (context-guard, refine-gate)
 plugins/
-  context-guard/                  # Stop guard + memory-writer agent + SubagentStop tracker
+  context-guard/                  # Stop guard (Claude + Codex) + memory-writer agent + SubagentStop tracker
   refine-gate/                    # UserPromptSubmit gate + /refine skill
   statusline/                     # renderer + helpers under assets/, install.sh (skill + SessionStart sync)
 tests/                            # the three suites, run from the repo root

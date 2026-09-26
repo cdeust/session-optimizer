@@ -1,10 +1,11 @@
 # context-guard
 
-A context-budget guard for long [Claude Code](https://code.claude.com)
-sessions: a `Stop` hook that detects when the session crosses a per-model
-token threshold and *performs the checkpoint protocol automatically*, plus a
-`SubagentStop` tracker that surfaces the subagent spend the main thread's
-context measurement structurally cannot see.
+A context-budget guard for long [Claude Code](https://code.claude.com) and
+[Codex](https://github.com/openai/codex) sessions: a `Stop` hook that detects
+when the session crosses a per-model token threshold and *performs the
+checkpoint protocol automatically*, plus a `SubagentStop` tracker (Claude
+Code only) that surfaces the subagent spend the main thread's context
+measurement structurally cannot see.
 
 ## Why
 
@@ -22,6 +23,8 @@ token threshold. This plugin makes that discipline *automatic*.
 
 ## Install
 
+Claude Code:
+
 ```
 /plugin marketplace add cdeust/session-optimizer
 /plugin install context-guard@session-optimizer-marketplace
@@ -29,6 +32,20 @@ token threshold. This plugin makes that discipline *automatic*.
 
 The plugin wires the `Stop` and `SubagentStop` hooks and ships the
 `memory-writer` agent automatically. Requires Python 3.
+
+Codex:
+
+```
+codex plugin marketplace add cdeust/session-optimizer
+codex plugin add context-guard@session-optimizer-codex
+```
+
+Codex reads the same `hooks/hooks.json` file Claude Code does (verified: the
+`Stop`/`SubagentStop` hook entries below are trusted and run against
+`hooks/hooks.json` unmodified — no Codex-specific hooks file exists or is
+needed). The `SubagentStop` tracker is Claude-only: it already no-ops
+cleanly on Codex (its own `agent-*.jsonl` filename convention never matches
+a Codex `agent_transcript_path`), so no behavior needs disabling.
 
 ## Thresholds — shared with the statusline plugin
 
@@ -45,17 +62,22 @@ it, this embedded fallback applies:
     { "match": "mythos", "warn": 120000, "hard": 160000 },
     { "match": "haiku",  "warn": 120000, "hard": 170000 },
     { "match": "sonnet", "warn": 180000, "hard": 200000 },
-    { "match": "opus",   "warn": 180000, "hard": 200000 }
+    { "match": "opus",   "warn": 180000, "hard": 200000 },
+    { "match": "astra",  "warn": 180000, "hard": 220000 }
   ],
   "default": { "warn": 180000, "hard": 200000 }
 }
 ```
 
 First substring match against the lowercased model id wins. "Context tokens"
-are measured exactly as Claude Code's own `used_percentage`:
-`input_tokens + cache_creation_input_tokens + cache_read_input_tokens`.
-The 200K soft cap is conservative for the 1M-context Opus/Sonnet models — it
-keeps sessions focused and checkpointed rather than letting them sprawl.
+on Claude are measured exactly as Claude Code's own `used_percentage`:
+`input_tokens + cache_creation_input_tokens + cache_read_input_tokens`. On
+Codex, the most recent rollout `token_usage_record.usage.input_tokens` alone
+(see "Codex support" below for the sourced arithmetic). The 200K soft cap is
+conservative for the 1M-context Opus/Sonnet models — it keeps sessions
+focused and checkpointed rather than letting them sprawl. The `astra` row's
+window (258,400 tokens) was measured directly from a real rollout, not a
+published spec — see the citation table below.
 
 ## The Stop guard
 
@@ -134,6 +156,25 @@ the snippet itself:
   without this the snippet overwrites your real
   `~/.claude/memories/checkpoints/latest.md`.
 
+### Test the guard on a Codex payload
+
+```bash
+T=$(mktemp)
+printf '{"type":"session_meta","payload":{"session_id":"demo","cwd":"/x"}}\n{"type":"token_usage_record","payload":{"usage":{"input_tokens":185000,"cached_input_tokens":0,"output_tokens":200,"total_tokens":185200}}}\n{"type":"response_item","payload":{"type":"function_call","name":"exec"}}\n' > "$T"
+SID="codex-demo-$(date +%s)"
+FAKE_HOME=$(mktemp -d)
+echo '{"cwd":"'"$PWD"'","hook_event_name":"Stop","last_assistant_message":"done","model":"gpt-6-astra","permission_mode":"default","session_id":"'"$SID"'","stop_hook_active":false,"transcript_path":"'"$T"'","turn_id":"t1"}' \
+  | HOME="$FAKE_HOME" python3 hooks/stop-context-guard.py | python3 -m json.tool
+rm -f "$T" "/tmp/zetetic-ctxguard-$SID.json"
+rm -rf "$FAKE_HOME"
+```
+
+Expected: the same `decision: block` shape as the Claude snippet above, but
+the `reason`/`systemMessage` text never mentions `memory-writer` — the model
+is instructed to write the checkpoint stub itself. Host detection is
+automatic (first transcript line's `"type": "session_meta"`); nothing else
+about the hook's invocation changes.
+
 ## Subagent usage tracker
 
 The `Stop` guard (and any statusline) only sees the **main thread**. Work
@@ -194,22 +235,46 @@ cat "/tmp/zetetic-subagents-$SID.json" | python3 -m json.tool
 rm -f "/tmp/zetetic-subagents-$SID.json"
 ```
 
+## Codex support
+
+The `Stop` guard runs unmodified on Codex (codex-cli 0.157.1). Host
+detection peeks the transcript's first JSONL record: `type == "session_meta"`
+routes to the Codex reader (`transcript_codex.py`, `usage_reader.py`,
+`host_detect.py`); anything else (including an unreadable file) keeps the
+pre-existing Claude path byte-identical. Facts this integration relies on,
+each verified at a primary source:
+
+| Fact | Source |
+|---|---|
+| Stop/SubagentStop input fields (`cwd`, `hook_event_name`, `model`, `session_id`, `stop_hook_active`, `transcript_path`, `turn_id`, plus `agent_id`/`agent_type`/`agent_transcript_path` on SubagentStop) | `stop.command.input` / `subagent-stop.command.input` JSON Schemas embedded in the `codex` binary itself (codex-cli 0.157.1; extracted via `strings` on the installed binary) |
+| `{"decision":"block","reason":...}` blocks the stop and feeds `reason` back, same as Claude Code | `stop.command.output` schema in the same binary; its own embedded comment reads "Claude requires `reason` when `decision` is `block`; we enforce that semantic rule during output parsing rather than in the JSON schema" |
+| `${CLAUDE_PLUGIN_ROOT}` expands in Codex-run hook commands — no `hooks.json` change needed | `CLAUDE_PLUGIN_ROOT` / `PLUGIN_ROOT` strings present in the `codex` binary; empirically, refine-gate's existing `hooks/hooks.json` (same substitution) already runs correctly under Codex today |
+| Context size = latest `token_usage_record.payload.usage.input_tokens` alone; `cached_input_tokens` is a **subset**, not additive; `turn_token_usage`/`thread_token_usage` are cumulative cost counters, not context size | Real rollout `~/.codex/sessions/2026/09/26/rollout-2026-09-26T01-14-28-*.jsonl`: `input_tokens + output_tokens == total_tokens` across multiple records (cached never added); `usage.input_tokens` dropped from 228,390 to 36,520 across a `compacted` record (ordinals 783→793), confirming it — not the cumulative fields — tracks true context occupancy |
+| Activity gate: `response_item` records with `payload.type` in `{function_call, custom_tool_call}` | Same rollout; every observed tool invocation was one of these two types |
+| `gpt-6-astra` context window = 258,400 tokens | Same rollout: `session_meta.payload.context_window` and every `event_msg/token_count.info.model_context_window` |
+| `hooks/hooks.json` is read unmodified, same `Stop`/`SubagentStop` keys as Claude — no Codex-specific hooks file | Owner's real `~/.codex/config.toml` trust keys `context-guard@session-optimizer-marketplace:hooks/hooks.json:stop:0:0` and `...:subagent_stop:0:0` |
+| No verified subagent-spawn tool on Codex — the WARN protocol never offers a memory-writer delegate on this host | The sampled rollout's `function_call`/`custom_tool_call` names carried no agent-spawning primitive callable the way `agents/memory-writer.md`'s `subagent_type` is on Claude Code; Codex's multi-agent surface (`turn_context.multi_agent_version`, `inter_agent_communication_metadata`) is a platform feature, not a plugin-defined named tool |
+| `codex exec` (single-shot non-interactive mode) does not invoke the hook lifecycle at all | Empirically verified: zero firings of `Stop`/`UserPromptSubmit`/`PostToolUse`/`SessionEnd` across a real `command_execution` turn in a fresh, trusted `CODEX_HOME`. Hooks fire in interactive sessions (TUI, IDE extension, app-server) only — this plugin is tested via direct subprocess invocation of the hook with a Codex-shaped payload (see `tests/test_context_guard_hooks.py`), the same way `codex` itself invokes it |
+
 ## Manual install (without the plugin system)
 
 ```bash
 mkdir -p ~/.claude/hooks ~/.claude/agents
 cp hooks/stop-context-guard.py hooks/checkpoint_protocol.py \
-   hooks/checkpoint_stub.py hooks/subagent_spend.py hooks/thresholds.py \
-   hooks/transcript_lines.py hooks/transcript_scan.py ~/.claude/hooks/
+   hooks/checkpoint_stub.py hooks/host_detect.py hooks/subagent_spend.py \
+   hooks/thresholds.py hooks/transcript_codex.py hooks/transcript_lines.py \
+   hooks/transcript_scan.py hooks/usage_reader.py ~/.claude/hooks/
 chmod +x ~/.claude/hooks/stop-context-guard.py
 cp agents/memory-writer.md ~/.claude/agents/memory-writer.md
 ```
 
-`stop-context-guard.py` imports six sibling modules from its own directory
-(`checkpoint_protocol.py`, `checkpoint_stub.py`, `subagent_spend.py`,
-`thresholds.py`, `transcript_lines.py`, `transcript_scan.py`) and
+`stop-context-guard.py` imports eight sibling modules directly
+(`checkpoint_protocol.py`, `checkpoint_stub.py`, `host_detect.py`,
+`subagent_spend.py`, `thresholds.py`, `transcript_lines.py`,
+`transcript_scan.py`, `usage_reader.py`), plus `transcript_codex.py`
+transitively via `usage_reader.py` — copy all nine, they must stay together.
 `subagent-tracker.py` imports the shared core from the sibling `tools/`
-directory — keep the whole set together. Then register the `Stop` /
+directory. Then register the `Stop` /
 `SubagentStop` entries (see
 `hooks/hooks.json`) in `~/.claude/settings.json`, pointing at the installed
 paths.
