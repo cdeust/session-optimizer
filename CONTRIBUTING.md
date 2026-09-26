@@ -13,7 +13,7 @@ installed from the hash-locked Python development requirements.
 ```bash
 python -m venv .venv
 . .venv/bin/activate
-python -m pip install --require-hashes -r requirements-dev.lock
+python -m pip install --require-hashes --no-deps -r requirements-dev.txt
 ```
 
 ## Change process

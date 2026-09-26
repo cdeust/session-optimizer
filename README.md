@@ -97,7 +97,7 @@ hooks and just announces the migration at session start.
 ## Tests
 
 ```bash
-python -m pip install --require-hashes -r requirements-dev.lock
+python -m pip install --require-hashes --no-deps -r requirements-dev.txt
 coverage erase
 coverage run -m pytest -q
 coverage combine
