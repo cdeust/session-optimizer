@@ -23,6 +23,7 @@ from cleanup_operations import (
 )
 from cleanup_registry import Protected, registry
 from cleanup_switch import cleanup_enabled
+from hook_output import protocol_output
 
 
 def parse_args():
@@ -111,7 +112,7 @@ def main():
             "explicit session identity is required; no ownership inferred from cwd"
         )
     result = run_command(args, payload)
-    print(json.dumps(result))
+    print(json.dumps(protocol_output(args, result)))
 
 
 def run_command(args, payload):
