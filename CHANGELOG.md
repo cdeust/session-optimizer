@@ -7,9 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### context-guard 2.0.2
+
+#### Fixed
+
+- **The README's "Test the guard" smoke test now actually demonstrates a
+  block.** Since [20213dc](https://github.com/cdeust/session-optimizer/commit/20213dc)
+  (an ancestor of the `v2.3.0` tag below, undocumented until now — see the
+  provenance note on that section) the Stop guard's activity gate
+  (`_has_activity_since`) requires at least one `tool_use` content block in
+  the transcript before it will fire. The documented snippet's transcript
+  carried only a `usage` record, so it silently produced no output,
+  contradicting its own "Expected: a `decision: block` payload." Fixed by
+  adding the missing `tool_use` block, generating a unique `session_id` per
+  run with its fire-once state file removed afterward (a fixed `"demo"`
+  session_id went silent on every run after the first), and sandboxing
+  `HOME` for the duration of the command with cleanup afterward (the
+  snippet was overwriting the user's real
+  `~/.claude/memories/checkpoints/latest.md`). Verified with a subprocess
+  test that extracts the exact fenced block from the README and runs it
+  twice. The neighboring "Test the tracker" snippet's equivalent
+  cleanup gap (a stray `/tmp/zetetic-subagents-<SID>.json`) was fixed the
+  same way.
+
+#### Changed
+
+- **`stop-context-guard.py` and `subagent-tracker.py` refactored,
+  behavior-preserving**, to bring every function under the project's size
+  limits (50 lines / 4 params / nesting depth 3) and the file itself under
+  500 lines (580 lines pre-existing — a violation that predates this
+  release). Three new sibling modules split out reusable concerns:
+  `thresholds.py` (per-model config-table lookup), `transcript_lines.py`
+  (JSONL line-content predicates), `transcript_scan.py` (the bounded
+  chunked-line walk, shared by the transcript-usage reader and the
+  activity-gate scanner). No behavior change; the existing hook contract,
+  stdout JSON shape, and exit codes are unchanged. Also fixed: a valid but
+  non-dict JSON Stop-hook payload (e.g. a bare list) previously raised an
+  unhandled `AttributeError`, contradicting the hook's own "never fail
+  hard" contract.
+
 ## [2.3.0] - 2026-09-10
 
-Statusline only. No change to context-guard or refine-gate.
+Statusline only for what shipped under this tag intentionally — but this
+section's original text ("No change to context-guard or refine-gate") was
+wrong: [20213dc](https://github.com/cdeust/session-optimizer/commit/20213dc)
+(the Stop guard's activity gate) is an ancestor of the `v2.3.0` tag and was
+never given its own version bump or changelog entry at the time. It is
+documented retroactively under `context-guard 2.0.2` above, the first
+version bump to carry it.
 
 ### Changed
 
