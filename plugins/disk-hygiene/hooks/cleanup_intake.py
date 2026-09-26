@@ -1,0 +1,104 @@
+"""Lock-independent durable end events for the two cleanup consumers.
+
+source: disk-hygiene design . Unique event files cannot overwrite another hook's end marker.
+"""
+
+import json
+import os
+import re
+import sys
+import uuid
+from pathlib import Path
+
+from cleanup_registry import Protected, save
+
+
+def directory(state, consumer):
+    if consumer not in ("worktree", "host"):
+        raise Protected("unknown end-event consumer")
+    state = Path(state).expanduser().absolute()
+    return state.with_name(state.name + ".ended") / consumer
+
+
+def roots():
+    return {
+        "codex_home": str(
+            Path(os.environ.get("CODEX_HOME") or "~/.codex").expanduser().resolve()
+        ),
+        "claude_home": str(
+            Path(os.environ.get("CLAUDE_CONFIG_DIR") or "~/.claude")
+            .expanduser()
+            .resolve()
+        ),
+        "claude_tmp": str(
+            Path(os.environ.get("CLAUDE_CODE_TMPDIR") or "/tmp").expanduser().resolve()
+        ),
+    }
+
+
+def record_end(args, payload):
+    event = {
+        "host": args.host,
+        "session": args.session,
+        "roots": roots(),
+        "cwd": payload.get("cwd"),
+        "payload": payload,
+    }
+    event_id = uuid.uuid4().hex + ".json"
+    for consumer in ("worktree", "host"):
+        folder = directory(args.state, consumer)
+        folder.mkdir(parents=True, exist_ok=True)
+        save(folder / event_id, event)
+        if os.name != "nt":
+            descriptor = os.open(folder, os.O_RDONLY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    return event
+
+
+# source: native host UUID session identifiers; the host consumer builds paths from them.
+HOST_SESSION = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
+
+
+def read_pending(state, consumer):
+    """Valid end events of one consumer; an unusable file is reported and skipped.
+
+    One corrupt or foreign file must never stop cleanup for other sessions.
+    """
+    events = []
+    for path in sorted(directory(state, consumer).glob("*.json")):
+        try:
+            if path.is_symlink():
+                raise Protected("symlink end intake")
+            event = json.loads(path.read_text())
+            if (
+                not isinstance(event, dict)
+                or event.get("host") not in ("claude", "codex")
+                or not isinstance(event.get("session"), str)
+                or not event["session"]
+                or not isinstance(event.get("roots"), dict)
+            ):
+                raise Protected("invalid end intake")
+            if consumer == "host" and not HOST_SESSION.fullmatch(event["session"]):
+                raise Protected("session id is not a UUID")
+        except (OSError, ValueError, Protected) as exc:
+            print(
+                f"[disk-hygiene] ignored end intake {path.name}: {exc}", file=sys.stderr
+            )
+            continue
+        events.append((path, event))
+    return events
+
+
+def acknowledge(events):
+    # Each filename is a unique immutable event, never an owner slot reused by resume.
+    for path, _event in events:
+        path.unlink(missing_ok=True)
+
+
+def merge_worktrees(state, events):
+    ended = state.setdefault("_ended", {})
+    for _path, event in events:
+        ended[event["host"] + ":" + event["session"]] = True

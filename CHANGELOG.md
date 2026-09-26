@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### disk-hygiene 0.1.0
+
+#### Added
+
+- New plugin for Claude Code and Codex: session-owned cleanup of registered
+  git worktrees and local branches (removed only when the linked PR head
+  contains every local commit and preserved evidence still matches), and of
+  ended-session runtime files. Transcripts are kept by default
+  (`DISK_HYGIENE_TRANSCRIPTS=delete` opts in); `DISK_HYGIENE_CLEANUP=off`
+  disables everything. Moved out of the Cortex plugins, where it was proposed
+  as PR 645, with these changes: push detection reads only the command of a
+  shell tool (no match on file content, grep patterns, commit messages or
+  `--dry-run`); the ledger lock waits up to 10 seconds instead of failing at
+  once, and ordinary tool calls take no lock and write nothing; an unreadable
+  end-of-session intake file is skipped instead of blocking every hook; the
+  context-guard checkpoint follows the transcript policy; a symlinked config
+  directory is resolved instead of silently disabling cleanup; the Cortex
+  completion receipt for Codex rollouts is optional. Migration: the ledger
+  moves to `<CLAUDE_CONFIG_DIR>/disk-hygiene/worktree-cleanup.json`,
+  `CORTEX_CLAUDE_DIR` becomes `CLAUDE_CONFIG_DIR` and `CORTEX_CLEANUP_TRANSCRIPTS`
+  becomes `DISK_HYGIENE_TRANSCRIPTS`; old ledger records are not carried over.
+
 ### context-guard 2.1.0
 
 #### Added
