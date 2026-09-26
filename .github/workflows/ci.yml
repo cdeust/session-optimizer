@@ -86,11 +86,13 @@ jobs:
           python -m json.tool .claude-plugin/plugin.json > /dev/null
           python -m json.tool .agents/plugins/marketplace.json > /dev/null
           python -m json.tool hooks/hooks.json > /dev/null
-          for plugin in context-guard refine-gate statusline; do
+          for plugin in context-guard refine-gate statusline disk-hygiene; do
             python -m json.tool "plugins/$plugin/.claude-plugin/plugin.json" > /dev/null
             python -m json.tool "plugins/$plugin/hooks/hooks.json" > /dev/null
           done
           python -m json.tool plugins/refine-gate/.codex-plugin/plugin.json > /dev/null
+          python -m json.tool plugins/disk-hygiene/.codex-plugin/plugin.json > /dev/null
+          python -m json.tool plugins/disk-hygiene/hooks/codex-hooks.json > /dev/null
           python -m json.tool plugins/statusline/assets/statusline-budget.json > /dev/null
           python -m json.tool plugins/statusline/assets/ctxguard-thresholds.json > /dev/null
           python -m json.tool plugins/statusline/assets/pricing.json > /dev/null

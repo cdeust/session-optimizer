@@ -1,0 +1,34 @@
+{
+  "name": "disk-hygiene",
+  "version": "0.1.0",
+  "description": "Session-owned disk cleanup for Codex and Claude Code: registered git worktrees and their local branches are removed once the linked PR head contains every local commit, and ended-session runtime files are purged. Rollouts are kept unless deletion is explicitly enabled.",
+  "author": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools",
+    "url": "https://github.com/cdeust"
+  },
+  "homepage": "https://github.com/cdeust/session-optimizer/tree/main/plugins/disk-hygiene",
+  "repository": "https://github.com/cdeust/session-optimizer",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "claude-code",
+    "worktree",
+    "cleanup",
+    "disk-space"
+  ],
+  "hooks": "./hooks/codex-hooks.json",
+  "interface": {
+    "displayName": "Disk Hygiene",
+    "shortDescription": "Remove finished worktrees and runtime files your session owns",
+    "longDescription": "Registered git worktrees and their local branches are removed after the linked PR head contains every local commit. Runtime files of ended sessions are purged. Transcripts are kept by default; DISK_HYGIENE_CLEANUP=off disables everything.",
+    "developerName": "Clement Deust",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/cdeust/session-optimizer",
+    "privacyPolicyURL": "https://github.com/cdeust/session-optimizer/blob/main/PRIVACY.md"
+  }
+}
