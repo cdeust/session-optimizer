@@ -257,6 +257,19 @@ def _dedupe_by_message(fh) -> dict:
     return by_message
 
 
+def _open_transcript(path):
+    """Open path for reading, or None if it's missing/unreadable.
+
+    Exception scope is deliberately narrow: this guards ONLY the open()
+    call. A ValueError/TypeError raised later, while reading a malformed
+    record, must NOT be caught here — see parse_transcript_usage.
+    """
+    try:
+        return open(path, "r", encoding="utf-8", errors="replace")
+    except (OSError, TypeError, ValueError):
+        return None
+
+
 def parse_transcript_usage(path):
     """Parse one transcript JSONL into a deduplicated billed Usage.
 
@@ -268,12 +281,15 @@ def parse_transcript_usage(path):
 
     Precondition:  path is a path string.
     Postcondition: returns a Usage (zeroed if the file is missing/unreadable).
+    A malformed per-record usage payload (e.g. a non-numeric token count) is
+    NOT swallowed here: it propagates as ValueError/TypeError, since that is
+    a data-quality bug in the transcript, not a missing/unreadable file.
     """
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            by_message = _dedupe_by_message(fh)
-    except (OSError, TypeError, ValueError):
+    fh = _open_transcript(path)
+    if fh is None:
         return Usage()
+    with fh:
+        by_message = _dedupe_by_message(fh)
 
     total = Usage()
     for _, obj in by_message.values():

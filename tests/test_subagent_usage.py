@@ -5,6 +5,8 @@ import json
 import os
 import sys
 
+import pytest
+
 sys.path.insert(
     0,
     os.path.join(os.path.dirname(__file__), "..", "plugins", "context-guard", "tools"),
@@ -145,6 +147,20 @@ def test_parse_counts_tool_uses_and_server_tools(tmp_path):
 def test_parse_missing_file_returns_zero():
     u = su.parse_transcript_usage("/nonexistent/agent-x.jsonl")
     assert u.input_tokens == 0 and su.cost_usd(u) == 0.0
+
+
+def test_parse_raises_on_malformed_record_usage(tmp_path):
+    """A missing/unreadable FILE zeroes out (test above); a malformed
+    per-record usage payload is a different failure and must not be
+    silently swallowed into the same zeroed Usage() -- that would turn a
+    detectable data-quality bug into a silent cost under-report."""
+    path = str(tmp_path / "agent-x.jsonl")
+    _write_jsonl(
+        path,
+        [_assistant("m1", "claude-opus-4-8", {"input_tokens": "abc"})],
+    )
+    with pytest.raises(ValueError):
+        su.parse_transcript_usage(path)
 
 
 def test_subagent_record_reads_meta(tmp_path):

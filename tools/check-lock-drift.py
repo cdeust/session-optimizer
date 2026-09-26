@@ -17,7 +17,11 @@ any regeneration that used the wrong command.
 
 Compares the pinned version of every direct dependency in
 requirements-dev.in against its pin in requirements-dev.txt and fails on
-any mismatch or omission.
+any mismatch or omission. One-directional by design: a compiled
+`--universal` lock legitimately carries transitive dependencies (e.g.
+iniconfig, packaging, pluggy, pygments) that never appear in the manifest,
+so checking the reverse direction (lock -> manifest) would fail on every
+compile. This guard only ever asks "is every *direct* pin honored?".
 """
 
 from __future__ import annotations
@@ -27,19 +31,64 @@ import re
 import sys
 from pathlib import Path
 
-# name==version, ignoring comments/blank lines/markers (`; sys_platform == ...`).
-_PIN_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([A-Za-z0-9][A-Za-z0-9._+-]*)")
+# name[extras]==version, ignoring comments/blank lines/options and a
+# trailing environment marker (`; sys_platform == ...`) or continuation
+# backslash -- match() only needs a valid prefix, so neither has to be
+# stripped first.
+_PIN_RE = re.compile(
+    r"^([A-Za-z0-9][A-Za-z0-9._-]*)"  # package name
+    r"(?:\[[^\]]*\])?"  # optional extras, e.g. coverage[toml]
+    r"=="
+    r"([A-Za-z0-9][A-Za-z0-9._+-]*)"  # version
+)
+
+
+def _normalize(name: str) -> str:
+    """PEP 503 normalized distribution name.
+
+    https://peps.python.org/pep-0503/#normalized-names -- runs of `-`, `_`,
+    `.` collapse to a single `-`, then lowercase. Without this, `Foo-Bar`
+    and `foo_bar` compare as different packages and the guard reports a
+    false "absent from the lock" for a pin that is actually present.
+    """
+    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def _parse_pins(text: str) -> dict[str, str]:
-    """Extract {package: version} for every top-level (column-0) pin line."""
+    """Extract {normalized_name: version} for every top-level (column-0)
+    pin line. Lenient: used for requirements-dev.txt, the compiled lock,
+    which legitimately carries hash-continuation and `# via` comment lines
+    this function is expected to skip."""
     pins: dict[str, str] = {}
     for line in text.splitlines():
         if line.startswith((" ", "\t", "#")):
             continue  # hash/`# via` continuation lines and comments
         match = _PIN_RE.match(line)
         if match:
-            pins[match.group(1).lower()] = match.group(2)
+            pins[_normalize(match.group(1))] = match.group(2)
+    return pins
+
+
+def _parse_manifest_pins(text: str) -> dict[str, str]:
+    """Strict parse for requirements-dev.in.
+
+    Every non-blank, non-comment, non-option line MUST be a parseable pin,
+    or this raises ValueError naming the exact line. A manifest line the
+    parser can't classify must never be silently skipped: that is the
+    "guard silently passes a real drift" failure mode this tool exists to
+    prevent, not a shape it should also be capable of.
+    """
+    pins: dict[str, str] = {}
+    for lineno, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith(("#", "-")):
+            continue  # blank, comment, or a pip option line (-e, -r, ...)
+        match = _PIN_RE.match(line)
+        if not match:
+            raise ValueError(
+                f"unparseable requirements-dev.in line {lineno}: {raw_line!r}"
+            )
+        pins[_normalize(match.group(1))] = match.group(2)
     return pins
 
 
@@ -67,7 +116,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("lock", type=Path, help="path to requirements-dev.txt")
     args = parser.parse_args(argv)
 
-    manifest_pins = _parse_pins(args.manifest.read_text(encoding="utf-8"))
+    try:
+        manifest_pins = _parse_manifest_pins(args.manifest.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     lock_pins = _parse_pins(args.lock.read_text(encoding="utf-8"))
     problems = find_drift(manifest_pins, lock_pins)
 

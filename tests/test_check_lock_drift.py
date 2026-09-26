@@ -5,6 +5,8 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "tools" / "check-lock-drift.py"
 SPEC = importlib.util.spec_from_file_location("session_optimizer_lock_drift", SCRIPT)
@@ -14,8 +16,11 @@ SPEC.loader.exec_module(drift)
 
 
 def test_real_lock_matches_real_manifest():
-    """The gate this module backs: run it on the actual repo files."""
-    manifest_pins = drift._parse_pins((ROOT / "requirements-dev.in").read_text())
+    """The gate this module backs: run it on the actual repo files, through
+    the same strict/lenient split main() uses."""
+    manifest_pins = drift._parse_manifest_pins(
+        (ROOT / "requirements-dev.in").read_text()
+    )
     lock_pins = drift._parse_pins((ROOT / "requirements-dev.txt").read_text())
     assert drift.find_drift(manifest_pins, lock_pins) == []
 
@@ -68,3 +73,100 @@ def test_main_exits_zero_when_current(tmp_path):
     manifest.write_text("ruff==0.16.6\n")
     lock.write_text("ruff==0.16.6 \\\n    --hash=sha256:deadbeef\n")
     assert drift.main([str(manifest), str(lock)]) == 0
+
+
+# --- Extras syntax (pkg[extra]==version) -----------------------------------
+
+
+def test_parse_pins_handles_extras():
+    """coverage[toml]==7.16.0 must not be silently dropped: [ breaks the
+    plain name-character class, so an un-extended regex would report zero
+    pins here instead of one."""
+    assert drift._parse_pins("coverage[toml]==7.16.0\n") == {"coverage": "7.16.0"}
+
+
+def test_parse_manifest_pins_handles_extras():
+    assert drift._parse_manifest_pins("coverage[toml]==7.16.0\n") == {
+        "coverage": "7.16.0"
+    }
+
+
+def test_extras_drift_is_detected_not_silently_passed():
+    """Regression for the reviewer-found hole: coverage[toml]==7.16.0 in the
+    manifest vs. coverage[toml]==5.0.0 in the lock is a real, large version
+    drift. Before parsing extras, _PIN_RE matched neither line, so the pin
+    vanished from both sides and find_drift() reported nothing -- exactly
+    the "guard silently passes a real drift" failure mode this tool exists
+    to prevent."""
+    manifest_pins = drift._parse_manifest_pins("coverage[toml]==7.16.0\n")
+    lock_pins = drift._parse_pins("coverage[toml]==5.0.0\n")
+    problems = drift.find_drift(manifest_pins, lock_pins)
+    assert len(problems) == 1
+    assert "coverage" in problems[0]
+    assert "7.16.0" in problems[0]
+    assert "5.0.0" in problems[0]
+
+
+def test_extras_with_multiple_names_and_marker():
+    text = "requests[security,socks]==2.32.0 ; python_version >= '3.8'\n"
+    assert drift._parse_pins(text) == {"requests": "2.32.0"}
+
+
+# --- PEP 503 name normalization ---------------------------------------------
+# https://peps.python.org/pep-0503/#normalized-names
+
+
+def test_normalize_lowercases():
+    """Kills a mutant that drops the .lower() call in _normalize: without
+    it, 'RUFF' stays 'RUFF' and never equals the lock's lowercase 'ruff'."""
+    assert drift._normalize("RUFF") == "ruff"
+
+
+def test_normalize_collapses_separators():
+    """Kills a mutant that drops the re.sub separator-collapse in
+    _normalize: without it, '_'/'.' survive and 'foo_bar' never equals a
+    lock's 'foo-bar'."""
+    assert drift._normalize("Foo_Bar.Baz") == "foo-bar-baz"
+
+
+def test_desynced_separator_variant_is_recognized_as_the_same_package():
+    """Foo-Bar==2.0 in the manifest and foo_bar==2.0 in the lock are the
+    same PEP 503 identity at the same version: matching, not a false
+    "absent from the lock". Before normalizing separators, .lower() alone
+    left 'foo-bar' != 'foo_bar' and this reported a false positive."""
+    manifest_pins = drift._parse_manifest_pins("Foo-Bar==2.0\n")
+    lock_pins = drift._parse_pins("foo_bar==2.0\n")
+    assert drift.find_drift(manifest_pins, lock_pins) == []
+
+
+def test_separator_variant_with_real_drift_is_still_caught():
+    """The normalization must not paper over an actual version mismatch
+    once the identity is reconciled."""
+    manifest_pins = drift._parse_manifest_pins("Foo-Bar==2.0\n")
+    lock_pins = drift._parse_pins("foo_bar==1.0\n")
+    problems = drift.find_drift(manifest_pins, lock_pins)
+    assert len(problems) == 1
+    assert "foo-bar" in problems[0]
+
+
+# --- Hard error on an unparseable manifest line -----------------------------
+
+
+def test_manifest_unparseable_line_raises():
+    text = "ruff==0.16.6\nthis is not a pin line\n"
+    with pytest.raises(ValueError, match="line 2"):
+        drift._parse_manifest_pins(text)
+
+
+def test_manifest_skips_blank_comment_and_option_lines():
+    text = "\n# a comment\n-e .\n-r other.in\nruff==0.16.6\n"
+    assert drift._parse_manifest_pins(text) == {"ruff": "0.16.6"}
+
+
+def test_main_reports_unparseable_manifest_line(tmp_path, capsys):
+    manifest = tmp_path / "requirements-dev.in"
+    lock = tmp_path / "requirements-dev.txt"
+    manifest.write_text("ruff==0.16.6\nnot a pin\n")
+    lock.write_text("ruff==0.16.6\n")
+    assert drift.main([str(manifest), str(lock)]) == 1
+    assert "unparseable" in capsys.readouterr().err
