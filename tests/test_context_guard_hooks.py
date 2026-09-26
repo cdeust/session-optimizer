@@ -7,6 +7,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -178,6 +179,21 @@ def test_has_activity_since_fails_open_when_the_scan_cap_is_hit_before_eof(tmp_p
     transcript = tmp_path / "big.jsonl"
     transcript.write_text((text_only_line + "\n") * 20)  # far larger than the 16-byte cap
     assert guard._has_activity_since(str(transcript), 0) is True
+
+
+def test_has_activity_since_offset_equal_size_is_false_even_with_earlier_tool_use(tmp_path):
+    """Mutation-kill for _normalize_since_offset's `since_offset > size`
+    boundary (a `>=` mutant would treat since_offset == size as "stale" and
+    rescan from 0). The transcript carries a tool_use line strictly BEFORE
+    since_offset, so a wrongly-triggered rescan-from-0 would find it and
+    return True; the correct behavior is False, because since_offset == size
+    means nothing has been appended since the last fire -- no rescan needed
+    regardless of what came before it."""
+    tool_use_line = json.dumps({"message": {"content": [{"type": "tool_use", "name": "Read"}]}})
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(tool_use_line + "\n")
+    since_offset = transcript.stat().st_size  # == size: exactly caught up
+    assert guard._has_activity_since(str(transcript), since_offset) is False
 
 
 def _run_guard_main(monkeypatch, payload, **session):
@@ -406,3 +422,57 @@ def test_readme_test_the_tracker_snippet_cleans_up_its_state_file():
     assert re.search(r"rm\s+-f\s+.*zetetic-subagents-", script), (
         "README 'Test the tracker' snippet does not clean up its state file"
     )
+
+
+GUARD_SIBLING_MODULES = [
+    "checkpoint_protocol", "checkpoint_stub", "thresholds",
+    "transcript_lines", "transcript_scan",
+]
+
+
+@pytest.mark.parametrize("missing_module", GUARD_SIBLING_MODULES)
+def test_guard_degrades_to_inert_when_a_sibling_module_is_missing(tmp_path, missing_module):
+    """A manual install that copies only the entry-point script (the named
+    failure mode in stop-context-guard.py's own module docstring) must
+    degrade to inert -- exit 0, no stdout -- for EACH of its five sibling
+    modules, never crash with an ImportError traceback that would contradict
+    the Stop hook's own 'never fail hard' contract. Exercised as a real
+    subprocess against a copy of hooks/ with exactly one module deleted, so
+    the import actually fails at process start (not a monkeypatched stand-in)."""
+    dest = tmp_path / "hooks"
+    shutil.copytree(HOOKS, dest)
+    (dest / f"{missing_module}.py").unlink()
+
+    payload = {
+        "session_id": "s", "cwd": str(tmp_path),
+        "transcript_path": str(tmp_path / "missing.jsonl"),
+        "stop_hook_active": False,
+    }
+    proc = subprocess.run(
+        [sys.executable, str(dest / "stop-context-guard.py")],
+        input=json.dumps(payload), capture_output=True, text=True, timeout=10,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == ""
+
+
+def test_tracker_degrades_to_inert_when_shared_core_is_missing(tmp_path):
+    """Equivalent 'never fail hard' contract for subagent-tracker.py: with
+    tools/subagent_usage.py absent, the import falls back to its own no-op
+    stub functions (subagent_record/discover_subagents/session_dir_for all
+    returning empty results) rather than exiting early -- main() still runs
+    to completion and the hook still exits 0 with no stdout."""
+    dest_hooks = tmp_path / "hooks"
+    shutil.copytree(HOOKS, dest_hooks)
+    (tmp_path / "tools").mkdir()  # sibling tools/ dir present but empty
+
+    payload = {
+        "session_id": "s", "cwd": str(tmp_path),
+        "transcript_path": str(tmp_path / "agent-x.jsonl"),
+    }
+    proc = subprocess.run(
+        [sys.executable, str(dest_hooks / "subagent-tracker.py")],
+        input=json.dumps(payload), capture_output=True, text=True, timeout=10,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == ""
