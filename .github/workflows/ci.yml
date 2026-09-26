@@ -55,10 +55,10 @@ jobs:
           coverage xml
 
       - name: Enforce Python coding standard
-        run: ruff check plugins tests
+        run: ruff check plugins tests tools
 
       - name: Enforce Python formatting
-        run: ruff format --check plugins tests
+        run: ruff format --check plugins tests tools
 
       - name: Statusline heat-track tests
         run: bash tests/statusline/test_heat_rgb.sh
