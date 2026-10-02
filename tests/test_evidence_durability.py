@@ -65,12 +65,8 @@ class DurabilityTests(base.CleanupTests):
         with patch.object(disk_hygiene.Path, "cwd", return_value=Path(self.repo)):
             return disk_hygiene.execute(self.state, owner or self.new, args, {})
 
-    def lose_evidence(self):
-        """A record written before the durability check, then its session ends."""
-        checkpoint = self.session_file(PURGED[0])
-        self.state[self.path]["evidence"] = str(checkpoint)
-        self.state[self.path]["evidence_sha256"] = "0" * 64
-        self.state["_ended"] = {self.owner: True}
+    def end_session(self):
+        """What SessionEnd removes for SID once transcripts may be deleted."""
         with patch.dict(os.environ, {"DISK_HYGIENE_TRANSCRIPTS": "delete"}):
             session_purge.purge_ended(
                 (session_purge.claude_home(), session_purge.temp_root()),
@@ -78,6 +74,14 @@ class DurabilityTests(base.CleanupTests):
                 lambda path: None,
                 wait=lambda: True,
             )
+
+    def lose_evidence(self):
+        """A record written before the durability check, then its session ends."""
+        checkpoint = self.session_file(PURGED[0])
+        self.state[self.path]["evidence"] = str(checkpoint)
+        self.state[self.path]["evidence_sha256"] = "0" * 64
+        self.state["_ended"] = {self.owner: True}
+        self.end_session()
         self.assertFalse(checkpoint.exists())
 
     def test_evidence_the_purgers_select_is_refused(self):
@@ -109,7 +113,7 @@ class DurabilityTests(base.CleanupTests):
         history = self.session_file(PURGED[3])
         spellings = {
             "home": self.root / "CLAUDE" / checkpoint.relative_to(self.root / "claude"),
-            "session id": checkpoint.with_name(checkpoint.name.upper()),
+            "session id": checkpoint.with_name(f"{SID.upper()}.md"),
             "parent": history.parents[1].with_name("FILE-HISTORY") / SID / "review.md",
         }
         for part, evidence in spellings.items():
@@ -117,6 +121,13 @@ class DurabilityTests(base.CleanupTests):
                 with self.assertRaises(Protected) as refusal:
                     h.preserve(self.state, self.owner, self.path, str(evidence))
                 self.assertIn("outlive its session", str(refusal.exception))
+
+    def test_evidence_inside_a_disposable_directory_is_refused(self):
+        evidence = Path(self.path) / "review.md"
+        evidence.write_text("review evidence")
+        with self.assertRaises(Protected) as refusal:
+            h.preserve(self.state, self.owner, self.path, str(evidence))
+        self.assertIn("outside every disposable", str(refusal.exception))
 
     @unittest.skipUnless(CASE_BLIND, CASE_BLIND_ONLY)
     def test_another_spelling_of_a_disposable_directory_is_refused(self):
@@ -133,7 +144,8 @@ class DurabilityTests(base.CleanupTests):
         review.parent.mkdir()
         os.link(checkpoint, review)
         h.preserve(self.state, self.owner, self.path, str(review))
-        checkpoint.unlink()
+        self.end_session()
+        self.assertFalse(checkpoint.exists())
         self.assertIn("removed worktree", self.clean()["status"])
 
     def test_directory_a_session_link_points_to_is_accepted(self):
@@ -142,7 +154,9 @@ class DurabilityTests(base.CleanupTests):
         link = review.parent.with_name(SID)
         link.symlink_to(review.parent, target_is_directory=True)
         h.preserve(self.state, self.owner, self.path, str(review))
-        self.assertEqual(self.state[self.path]["evidence"], str(review))
+        self.end_session()
+        self.assertFalse(os.path.lexists(link))
+        self.assertIn("removed worktree", self.clean()["status"])
 
     def test_project_file_named_after_a_session_is_accepted(self):
         review = self.session_file("main-tasks/review-{sid}.md")
