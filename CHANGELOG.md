@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### disk-hygiene 0.1.1
+
+#### Fixed
+
+- `evidence-preserved` refuses a file that session cleanup removes: a
+  context-guard checkpoint, a transcript, file history, a scratchpad or any
+  other session-keyed file of Claude Code or Codex, whatever the transcript
+  policy. Such a file disappeared at session end and the worktree then stayed
+  protected for ever (`dispose` answered `No such file or directory`). The
+  refusal names the purged location and asks for a project file. The file is
+  recognised by identity, not by spelling, so another letter case of the same
+  path is refused on a file system that ignores case. The existing refusal of
+  evidence inside a registered disposable directory now works the same way.
+- A worktree or temporary directory whose evidence was lost that way can be
+  finished by a later session working in the same main checkout, once the
+  owner's session end is recorded: `evidence-preserved` marks a new file and
+  `dispose --path` runs every existing check under the ended owner.
+  `evidence-preserved` stays refused for evidence that still exists or was
+  never marked; both commands stay refused for an active owner and for another
+  repository. `dispose --path` does not require lost evidence: like SessionStart
+  recovery, it finishes any path of an ended owner of the same main checkout.
+- Marking evidence again for a worktree already removed, whose local branch is
+  still pending, keeps the verified head instead of failing on the missing
+  directory.
+- End markers of sessions that own no registered path are dropped at
+  SessionStart instead of accumulating in the ledger.
+
 ### disk-hygiene 0.1.0
 
 #### Added

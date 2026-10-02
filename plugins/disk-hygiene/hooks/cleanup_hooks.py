@@ -6,7 +6,7 @@ import re
 import shlex
 from pathlib import Path
 
-from cleanup_operations import Protected, dispose, trees
+from cleanup_operations import Protected, dispose, evidence_lost, trees
 
 
 def scope(cwd):
@@ -23,6 +23,7 @@ def recover(state, owner, cwd):
         (p, r) for p, r in state.items() if p != "_ended" and r.get("owner") in ended
     ]
     if not eligible:
+        ended.clear()  # No registered path left for any ended owner.
         return []
     try:
         repo = scope(cwd)
@@ -40,6 +41,32 @@ def recover(state, owner, cwd):
         ):
             del ended[previous]
     return result
+
+
+def acting_owner(state, owner, path, cwd):
+    """The owner a command acts as: the caller, or the ended owner of a path.
+
+    Same rule as startup recovery: the owner's session end is recorded and the
+    path is registered for the main checkout the caller runs in. An active or
+    unknown owner is never acted for.
+    """
+    record = state.get(path) if path and path != "_ended" else None
+    if not record or record.get("owner") == owner:
+        return owner
+    if record.get("owner") not in state.get("_ended", {}):
+        return owner
+    return record["owner"] if record.get("repo") == scope(cwd) else owner
+
+
+def evidence_owner(state, owner, path, cwd):
+    """Evidence of an ended owner is marked again only once its file is gone."""
+    actor = acting_owner(state, owner, path, cwd)
+    if actor != owner and not evidence_lost(state[path]):
+        raise Protected(
+            "evidence of an ended session is marked again only once its "
+            "recorded file is gone"
+        )
+    return actor
 
 
 # Shell-like tools: a push can only come from their command field.
@@ -216,7 +243,8 @@ def startup_context(args, result):
     context = (
         "Register each new worktree: "
         + command
-        + ". Link its PR and preserve evidence before dispose. "
+        + ". Link its PR and preserve evidence in a project file before "
+        + "dispose: a session checkpoint, transcript or scratchpad is refused. "
         + "Transcripts are retained by default. Cleanup: "
         + json.dumps(result)
     )

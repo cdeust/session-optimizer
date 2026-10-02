@@ -12,7 +12,7 @@ from pathlib import Path
 import cleanup_intake
 import host_cleanup
 import transcript_policy
-from cleanup_hooks import hook_result, pushed
+from cleanup_hooks import acting_owner, evidence_owner, hook_result, pushed
 from cleanup_operations import (
     create_temp,
     dispose,
@@ -80,10 +80,12 @@ def execute(state, owner, args, payload):
     if args.command == "create-temp":
         return create_temp(state, owner, args.parent)
     if args.command == "evidence-preserved":
-        preserve(state, owner, args.path, args.evidence)
+        actor = evidence_owner(state, owner, args.path, str(Path.cwd()))
+        preserve(state, actor, args.path, args.evidence)
         return {"evidence_preserved": args.path}
     if args.command == "dispose":
-        return dispose(state, owner, args.path, {"dry_run": args.dry_run})
+        actor = acting_owner(state, owner, args.path, str(Path.cwd()))
+        return dispose(state, actor, args.path, {"dry_run": args.dry_run})
     if args.command == "hook":
         return hook_result(state, owner, args, payload)
     return {p: r for p, r in state.items() if p != "_ended" and r["owner"] == owner}

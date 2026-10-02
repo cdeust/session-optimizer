@@ -1,7 +1,7 @@
 {
   "name": "disk-hygiene",
   "description": "Session-owned disk cleanup for Claude Code and Codex: registered git worktrees and their local branches are removed once the linked PR head contains every local commit, and ended-session runtime files (scratchpad, todos, debug logs, session env) are purged. Transcripts are kept unless deletion is explicitly enabled. Global switch: DISK_HYGIENE_CLEANUP=off.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Clement Deust",
     "email": "admin@ai-architect.tools"

@@ -59,6 +59,38 @@ protected: use a registered linked worktree for review checkouts. `status` lists
 the current owner's paths. The SessionStart hook prints the exact command for the
 installed copy.
 
+### Evidence
+
+Evidence is a file the session keeps after the worktree is gone, so it must
+outlive the session. Save it in the project, for example
+`/abs/main/tasks/review.md`. `evidence-preserved` refuses a file that session
+cleanup removes under any transcript policy: a context-guard checkpoint
+(`memories/checkpoints/<session>.md`), a transcript, file history, a scratchpad
+or another session-keyed file of Claude Code or Codex. The file is recognised by
+identity, not by spelling: on a file system that ignores letter case,
+`.CLAUDE/memories/checkpoints/<SESSION>.md` is refused like the checkpoint it
+opens. The same holds for a file inside a registered disposable directory.
+
+A record written by an earlier version may name such a file. Once that file is
+gone and the owner's session end is recorded, a later session working in the
+same main checkout finishes the cleanup:
+
+```sh
+cd /abs/main
+python3 "$CLEANUP" --host claude --session "$SESSION_ID" evidence-preserved --path /abs/main/.claude/worktrees/task --evidence /abs/main/tasks/review.md
+python3 "$CLEANUP" --host claude --session "$SESSION_ID" dispose --path /abs/main/.claude/worktrees/task
+```
+
+Ownership does not change and every check listed below still applies.
+`evidence-preserved` stays refused for evidence that still exists and for
+evidence that was never marked. Both commands stay refused for a path of an
+active owner and for a path of another repository.
+
+`dispose --path` does not require the evidence to be lost. It finishes any path
+of an ended owner registered for the same main checkout, with the evidence that
+owner marked: this is the command form of what SessionStart recovery already
+attempts for those paths.
+
 The ledger defaults to `<CLAUDE_CONFIG_DIR>/disk-hygiene/worktree-cleanup.json`;
 `--state` selects another one. Both hosts must share a ledger for ownership checks.
 

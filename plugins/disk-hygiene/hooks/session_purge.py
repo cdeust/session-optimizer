@@ -43,6 +43,8 @@ TRANSCRIPT_PATTERN = "projects/*/{sid}.jsonl"
 # context-guard's compaction checkpoint. It is resume material like a transcript,
 # so it follows the transcript policy: removed only when deletion is enabled.
 ENDED_PATTERNS = ("memories/checkpoints/{sid}.md",)
+# The host temp directory of one session, under temp_root().
+TEMP_PATTERN = "*/{sid}"
 
 
 def temp_root():
@@ -125,7 +127,7 @@ def purge_now(locations, session, guard, dry_run=False):
     sid = checked(session)
     patterns = cleanup_patterns(include_transcripts=False)
     found = home_paths(home, sid, patterns)
-    for session_dir in Path(root).glob(f"*/{sid}"):
+    for session_dir in home_paths(root, sid, (TEMP_PATTERN,)):
         if session_dir.is_dir() and not session_dir.is_symlink():
             found += [c for c in session_dir.iterdir() if c.name != "scratchpad"]
     results = [remove(p, guard, dry_run) for p in found + scratch_entries(root, sid)]
@@ -171,7 +173,7 @@ def purge_ended(locations, session, guard, wait=wait_for_reader):
     patterns = cleanup_patterns(include_transcripts=False)
     ended = ENDED_PATTERNS if transcript_policy.delete_enabled() else ()
     found = home_paths(home, sid, patterns + ended)
-    found += list(Path(root).glob(f"*/{sid}"))
+    found += home_paths(root, sid, (TEMP_PATTERN,))
     results = [r for p in found for r in remove_tree(p, guard)]
     return results + purge_transcripts(home, sid, guard, {"wait": wait})
 

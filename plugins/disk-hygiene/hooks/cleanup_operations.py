@@ -11,6 +11,7 @@ from pathlib import Path
 
 from cleanup_processes import no_open_files
 from cleanup_registry import Protected
+from durable_evidence import chain, entry, purge_target
 
 
 def run(argv, cwd=None):
@@ -109,20 +110,30 @@ def owned(state, owner, path):
 def preserve(state, owner, path, evidence):
     record = owned(state, owner, path)
     evidence = Path(evidence)
-    if any(
-        Path(p) == evidence or Path(p) in evidence.parents
-        for p in state
-        if p != "_ended"
-    ):
-        raise Protected("evidence must be outside every disposable directory")
     identity(evidence)
+    through = chain(evidence)
+    # A registered path already removed (pending branch) holds nothing.
+    if any(os.path.lexists(p) and entry(p) in through for p in state if p != "_ended"):
+        raise Protected("evidence must be outside every disposable directory")
+    target = purge_target(evidence)
+    if target:
+        raise Protected(
+            f"evidence must outlive its session: session cleanup removes {target}; "
+            "save it in a project file, for example under the main checkout"
+        )
     data = evidence.read_bytes()
     if not data:
         raise Protected("evidence must be a non-empty durable file")
     record["evidence"] = str(evidence)
     record["evidence_sha256"] = hashlib.sha256(data).hexdigest()
-    if record["kind"] == "worktree":
+    # A pending branch has no worktree left: its verified head stays the recorded one.
+    if record["kind"] == "worktree" and not record.get("pending_branch"):
         record["evidence_head"] = git(path, "rev-parse", "HEAD")
+
+
+def evidence_lost(record):
+    """Evidence was marked and its file no longer exists."""
+    return bool(record.get("evidence")) and not os.path.lexists(record["evidence"])
 
 
 def evidence_ok(record):
