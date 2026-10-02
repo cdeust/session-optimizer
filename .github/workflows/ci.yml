@@ -93,6 +93,8 @@ jobs:
           python -m json.tool plugins/refine-gate/.codex-plugin/plugin.json > /dev/null
           python -m json.tool plugins/disk-hygiene/.codex-plugin/plugin.json > /dev/null
           python -m json.tool plugins/disk-hygiene/hooks/codex-hooks.json > /dev/null
+          python -m json.tool plugins/statusline/.codex-plugin/plugin.json > /dev/null
+          python -m json.tool plugins/statusline/hooks/codex-hooks.json > /dev/null
           python -m json.tool plugins/statusline/assets/statusline-budget.json > /dev/null
           python -m json.tool plugins/statusline/assets/ctxguard-thresholds.json > /dev/null
           python -m json.tool plugins/statusline/assets/pricing.json > /dev/null

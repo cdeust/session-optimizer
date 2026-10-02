@@ -1,0 +1,23 @@
+{
+  "name": "statusline",
+  "version": "2.3.0",
+  "author": {
+    "name": "Clement Deust",
+    "email": "admin@ai-architect.tools"
+  },
+  "homepage": "https://github.com/cdeust/session-optimizer",
+  "repository": "https://github.com/cdeust/session-optimizer",
+  "license": "MIT",
+  "description": "Keep an existing Claude Code statusline installation synchronized through Codex SessionStart. This does not add a renderer to the Codex interface.",
+  "hooks": "./hooks/codex-hooks.json",
+  "interface": {
+    "displayName": "Statusline Sync",
+    "shortDescription": "Update an existing Claude statusline from Codex",
+    "developerName": "Clement Deust",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ]
+  }
+}

@@ -221,3 +221,12 @@ Setting: `STATUSLINE_SIZE` env variable, or the `"size"` field of `statusline-bu
 - `cache_ttl_min`: 5 (Pro default) or 60 (Max) — source: Anthropic
   prompt-caching docs (5 min TTL by default). Inspirations: `CCometixLine`
   (git ahead/behind + conflicts), `claude-hud` (tok/s, compactions, cache TTL).
+
+
+## Codex maintenance
+
+The Codex package runs the same existing-install sync through a typed
+SessionStart output adapter. It maintains an already installed Claude Code
+statusline; it does not add that renderer to Codex. A missing installation is
+left untouched. The Claude hook and installer remain unchanged, including the
+rules that preserve statusline-budget.json and ctxguard-thresholds.json.
