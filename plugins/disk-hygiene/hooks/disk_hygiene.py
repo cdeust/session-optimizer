@@ -96,7 +96,9 @@ def main():
     if not cleanup_enabled() and args.command != "status":
         if args.command == "hook":
             sys.stdin.read()  # Drain the payload; nothing is recorded or deleted.
-        print(json.dumps({"disabled": "DISK_HYGIENE_CLEANUP=off"}))
+        print(
+            json.dumps(protocol_output(args, {"disabled": "DISK_HYGIENE_CLEANUP=off"}))
+        )
         return
     transcript_policy.delete_enabled()  # Validate consent before any cleanup.
     payload = json.load(sys.stdin) if args.command == "hook" else {}

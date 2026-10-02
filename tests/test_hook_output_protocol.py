@@ -14,6 +14,38 @@ import pytest
     [
         ("codex", "hook", "PostToolUse", [], {}),
         ("codex", "hook", "Stop", [], {}),
+        ("codex", "hook", "SessionStart", [], {}),
+        (
+            "codex",
+            "hook",
+            "SessionStart",
+            [{"protected": "active process"}],
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": '[{"protected": "active process"}]',
+                }
+            },
+        ),
+        (
+            "codex",
+            "hook",
+            "SessionStart",
+            {"disabled": "off"},
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": '{"disabled": "off"}',
+                }
+            },
+        ),
+        (
+            "claude",
+            "hook",
+            "SessionStart",
+            [{"protected": "active process"}],
+            [{"protected": "active process"}],
+        ),
         (
             "codex",
             "hook",
@@ -61,3 +93,20 @@ def test_main_emits_host_protocol(
     monkeypatch.setattr(module.sys, "stdin", io.StringIO("{}"))
     module.main()
     assert json.loads(capsys.readouterr().out) == expected
+
+
+def test_disabled_codex_start_uses_session_envelope(monkeypatch, capsys):
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[1] / "plugins/disk-hygiene/hooks")
+    )
+    module = importlib.import_module("disk_hygiene")
+    args = SimpleNamespace(host="codex", command="hook", event="SessionStart")
+    monkeypatch.setattr(module, "parse_args", lambda: args)
+    monkeypatch.setattr(module, "cleanup_enabled", lambda: False)
+    monkeypatch.setattr(module.sys, "stdin", io.StringIO("{}"))
+    module.main()
+    output = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert output["hookEventName"] == "SessionStart"
+    assert json.loads(output["additionalContext"]) == {
+        "disabled": "DISK_HYGIENE_CLEANUP=off"
+    }
