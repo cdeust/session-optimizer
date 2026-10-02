@@ -11,7 +11,7 @@ from pathlib import Path
 
 from cleanup_processes import no_open_files
 from cleanup_registry import Protected
-from durable_evidence import purge_target
+from durable_evidence import chain, entry, purge_target
 
 
 def run(argv, cwd=None):
@@ -110,13 +110,11 @@ def owned(state, owner, path):
 def preserve(state, owner, path, evidence):
     record = owned(state, owner, path)
     evidence = Path(evidence)
-    if any(
-        Path(p) == evidence or Path(p) in evidence.parents
-        for p in state
-        if p != "_ended"
-    ):
-        raise Protected("evidence must be outside every disposable directory")
     identity(evidence)
+    through = chain(evidence)
+    # A registered path already removed (pending branch) holds nothing.
+    if any(os.path.lexists(p) and entry(p) in through for p in state if p != "_ended"):
+        raise Protected("evidence must be outside every disposable directory")
     target = purge_target(evidence)
     if target:
         raise Protected(

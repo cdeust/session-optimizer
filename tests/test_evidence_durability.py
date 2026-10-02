@@ -8,6 +8,7 @@ session could mark the evidence again.
 
 import os
 import sys
+import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -33,6 +34,10 @@ PURGED = (
     "codex/sessions/2026/10/02/rollout-test-{sid}.jsonl",
     "codex/shell_snapshots/{sid}.sh",
 )
+# Two spellings name one file only where the file system ignores letter case
+# (APFS and NTFS by default). Elsewhere the other spelling is another file.
+CASE_BLIND = Path(str(Path(__file__).resolve()).swapcase()).exists()
+CASE_BLIND_ONLY = "this file system distinguishes letter case"
 
 
 class DurabilityTests(base.CleanupTests):
@@ -98,6 +103,47 @@ class DurabilityTests(base.CleanupTests):
                     str(self.session_file(PURGED[0])),
                 )
 
+    @unittest.skipUnless(CASE_BLIND, CASE_BLIND_ONLY)
+    def test_another_spelling_of_a_purged_file_is_refused(self):
+        checkpoint = self.session_file(PURGED[0])
+        history = self.session_file(PURGED[3])
+        spellings = {
+            "home": self.root / "CLAUDE" / checkpoint.relative_to(self.root / "claude"),
+            "session id": checkpoint.with_name(checkpoint.name.upper()),
+            "parent": history.parents[1].with_name("FILE-HISTORY") / SID / "review.md",
+        }
+        for part, evidence in spellings.items():
+            with self.subTest(part):
+                with self.assertRaises(Protected) as refusal:
+                    h.preserve(self.state, self.owner, self.path, str(evidence))
+                self.assertIn("outlive its session", str(refusal.exception))
+
+    @unittest.skipUnless(CASE_BLIND, CASE_BLIND_ONLY)
+    def test_another_spelling_of_a_disposable_directory_is_refused(self):
+        tree = Path(self.path)
+        (tree / "review.md").write_text("review evidence")
+        evidence = tree.with_name(tree.name.upper()) / "review.md"
+        with self.assertRaises(Protected) as refusal:
+            h.preserve(self.state, self.owner, self.path, str(evidence))
+        self.assertIn("outside every disposable", str(refusal.exception))
+
+    def test_hard_link_kept_in_the_project_outlives_the_purged_name(self):
+        checkpoint = self.session_file(PURGED[0])
+        review = self.root / "main-tasks" / f"review-{SID}.md"
+        review.parent.mkdir()
+        os.link(checkpoint, review)
+        h.preserve(self.state, self.owner, self.path, str(review))
+        checkpoint.unlink()
+        self.assertIn("removed worktree", self.clean()["status"])
+
+    def test_directory_a_session_link_points_to_is_accepted(self):
+        """Session cleanup unlinks a link and leaves what it points to."""
+        review = self.session_file("claude/projects/project/kept-{sid}/review.md")
+        link = review.parent.with_name(SID)
+        link.symlink_to(review.parent, target_is_directory=True)
+        h.preserve(self.state, self.owner, self.path, str(review))
+        self.assertEqual(self.state[self.path]["evidence"], str(review))
+
     def test_project_file_named_after_a_session_is_accepted(self):
         review = self.session_file("main-tasks/review-{sid}.md")
         h.preserve(self.state, self.owner, self.path, str(review))
@@ -146,6 +192,13 @@ class DurabilityTests(base.CleanupTests):
             self.command_line("evidence-preserved", evidence=str(other))
         self.assertIn("recorded file is gone", str(refusal.exception))
         self.assertEqual(self.state[self.path]["evidence"], str(self.evidence))
+
+    def test_dispose_by_path_finishes_an_ended_owner_with_present_evidence(self):
+        """The command form of startup recovery: evidence need not be lost."""
+        self.state["_ended"] = {self.owner: True}
+        result = self.command_line("dispose", dry_run=False)
+        self.assertIn("removed worktree and local branch", result[0]["status"])
+        self.assertNotIn(self.path, self.state)
 
     def test_evidence_never_marked_stays_the_owner_s_omission(self):
         self.state["_ended"] = {self.owner: True}
