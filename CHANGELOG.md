@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- `evidence-preserved` no longer judges durability by the environment of the
+  process that runs it. The Claude home, Claude temp directory and Codex home
+  are recorded when a worktree or temporary directory is registered, the check
+  reads them from the record, and a process running under other roots is
+  refused with the differing names. A file under the host's home, which session
+  end removes, could be accepted as durable when `CLAUDE_CONFIG_DIR` or
+  `CODEX_HOME` differed from the host's. A path registered before this change
+  records the roots of its first `evidence-preserved` call.
 - A worktree whose marked evidence became a dangling symlink, or whose content
   changed, stayed protected for ever once its owner session had ended: only a
   missing file counted as lost evidence, so no later session could mark it

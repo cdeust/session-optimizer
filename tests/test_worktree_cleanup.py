@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -21,6 +22,9 @@ class CleanupFixture(unittest.TestCase):
         )
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        environment = patch.dict(os.environ, self.environment())
+        environment.start()
+        self.addCleanup(environment.stop)
         self.repo = str(self.root / "main")
         self.remote = str(self.root / "remote.git")
         self.path = str(self.root / "tree\nwith space")
@@ -52,6 +56,10 @@ class CleanupFixture(unittest.TestCase):
         self.patcher = patch.object(h, "run", side_effect=self.command)
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
+
+    def environment(self):
+        """Process environment in force from registration on (the host's roots)."""
+        return {}
 
     def command(self, argv, cwd=None):
         self.calls.append(argv)

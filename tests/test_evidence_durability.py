@@ -43,16 +43,15 @@ CASE_BLIND_ONLY = "this file system distinguishes letter case"
 class DurabilityFixture(base.CleanupFixture):
     """Session roots under the test directory and the command-line helpers."""
 
-    def setUp(self):
-        super().setUp()
-        roots = {
+    def environment(self):
+        return {
             "CLAUDE_CONFIG_DIR": str(self.root / "claude"),
             "CLAUDE_CODE_TMPDIR": str(self.root / "tmp"),
             "CODEX_HOME": str(self.root / "codex"),
         }
-        env = patch.dict(os.environ, roots)
-        env.start()
-        self.addCleanup(env.stop)
+
+    def setUp(self):
+        super().setUp()
         os.environ.pop("DISK_HYGIENE_TRANSCRIPTS", None)
         self.new = "claude:new"
 

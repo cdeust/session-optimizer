@@ -9,6 +9,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import cleanup_intake
 from cleanup_processes import no_open_files
 from cleanup_registry import Protected
 from durable_evidence import chain, entry, purge_target
@@ -74,7 +75,9 @@ def claim(state, path, owner, record):
     for other in (p for p in state if p != "_ended"):
         if Path(other) in Path(path).parents or Path(path) in Path(other).parents:
             raise Protected("overlapping registered paths")
-    record.update(owner=owner, identity=identity(path))
+    # The host's roots, fixed when the session registers: evidence-preserved
+    # later checks durability against these, not against its own environment.
+    record.update(owner=owner, identity=identity(path), roots=cleanup_intake.roots())
     state[path] = record
 
 
@@ -123,6 +126,24 @@ def admin_entries(state):
     }
 
 
+def owner_roots(record):
+    """The roots the owner registered under; refuse when this process has others.
+
+    A record written before roots were recorded has none: the calling process's
+    roots are taken once and stored with the evidence, the same answer the check
+    gave before, now pinned so that a later call under other roots is refused.
+    """
+    current = cleanup_intake.roots()
+    recorded = record.get("roots", current)
+    differ = sorted(key for key in current if current[key] != recorded.get(key))
+    if differ:
+        raise Protected(
+            "this process runs under other session roots than the owner's host "
+            f"({', '.join(differ)}); run evidence-preserved with the owner's environment"
+        )
+    return recorded
+
+
 def preserve(state, owner, path, evidence):
     record = owned(state, owner, path)
     evidence = Path(evidence)
@@ -136,7 +157,8 @@ def preserve(state, owner, path, evidence):
             "evidence must not be inside the Git admin directory of a registered "
             "worktree: git worktree remove deletes it"
         )
-    target = purge_target(evidence)
+    roots = owner_roots(record)
+    target = purge_target(evidence, roots)
     if target:
         raise Protected(
             f"evidence must outlive its session: session cleanup removes {target}; "
@@ -145,6 +167,7 @@ def preserve(state, owner, path, evidence):
     data = evidence.read_bytes()
     if not data:
         raise Protected("evidence must be a non-empty durable file")
+    record["roots"] = roots
     record["evidence"] = str(evidence)
     record["evidence_sha256"] = hashlib.sha256(data).hexdigest()
     # A pending branch has no worktree left: its verified head stays the recorded one.

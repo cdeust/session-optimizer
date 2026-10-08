@@ -47,6 +47,11 @@ def validate(state):
             record.get("identity"), list
         ):
             raise Protected("invalid registered owner or identity")
+        if "roots" in record and not (
+            isinstance(record["roots"], dict)
+            and all(isinstance(v, str) for v in record["roots"].values())
+        ):
+            raise Protected("invalid registered session roots")
         if record["kind"] == "worktree" and not all(
             isinstance(record.get(k), str) for k in ("repo", "branch")
         ):

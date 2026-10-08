@@ -47,9 +47,10 @@ ENDED_PATTERNS = ("memories/checkpoints/{sid}.md",)
 TEMP_PATTERN = "*/{sid}"
 
 
-def temp_root():
-    base = Path(os.environ.get("CLAUDE_CODE_TMPDIR", "/tmp")).resolve()
-    return base / f"claude-{os.getuid()}"
+def temp_root(base=None):
+    """The host temp root; `base` is a recorded CLAUDE_CODE_TMPDIR, else the process's."""
+    base = os.environ.get("CLAUDE_CODE_TMPDIR", "/tmp") if base is None else base
+    return Path(base).resolve() / f"claude-{os.getuid()}"
 
 
 def claude_home():

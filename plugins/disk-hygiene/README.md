@@ -73,6 +73,13 @@ opens. The same holds for a file inside a registered disposable directory, and f
 file inside the Git admin directory of a registered linked worktree
 (`<main>/.git/worktrees/<name>/`), which `git worktree remove` deletes.
 
+The check answers for the owner's host, not for the process that runs it. The
+Claude home, Claude temp directory and Codex home (`CLAUDE_CONFIG_DIR`,
+`CLAUDE_CODE_TMPDIR`, `CODEX_HOME`) are recorded when the path is registered, and
+`evidence-preserved` refuses to run under other roots, naming the ones that
+differ. A path registered by an earlier version has no recorded roots: the first
+`evidence-preserved` for it records those of the process that runs it.
+
 A record written by an earlier version may name such a file. The same holds for
 evidence that was marked and is no longer usable: the file is gone, was replaced
 by a symlink (dangling or not), or its content changed. Once that is so and the
