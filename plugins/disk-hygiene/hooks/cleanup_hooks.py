@@ -59,12 +59,12 @@ def acting_owner(state, owner, path, cwd):
 
 
 def evidence_owner(state, owner, path, cwd):
-    """Evidence of an ended owner is marked again only once its file is gone."""
+    """Evidence of an ended owner is marked again only once it is unusable."""
     actor = acting_owner(state, owner, path, cwd)
     if actor != owner and not evidence_lost(state[path]):
         raise Protected(
             "evidence of an ended session is marked again only once its "
-            "recorded file is gone"
+            "recorded file is gone, replaced by a symlink or changed"
         )
     return actor
 

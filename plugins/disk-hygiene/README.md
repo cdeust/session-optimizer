@@ -73,9 +73,11 @@ opens. The same holds for a file inside a registered disposable directory, and f
 file inside the Git admin directory of a registered linked worktree
 (`<main>/.git/worktrees/<name>/`), which `git worktree remove` deletes.
 
-A record written by an earlier version may name such a file. Once that file is
-gone and the owner's session end is recorded, a later session working in the
-same main checkout finishes the cleanup:
+A record written by an earlier version may name such a file. The same holds for
+evidence that was marked and is no longer usable: the file is gone, was replaced
+by a symlink (dangling or not), or its content changed. Once that is so and the
+owner's session end is recorded, a later session working in the same main
+checkout finishes the cleanup:
 
 ```sh
 cd /abs/main
@@ -84,8 +86,9 @@ python3 "$CLEANUP" --host claude --session "$SESSION_ID" dispose --path /abs/mai
 ```
 
 Ownership does not change and every check listed below still applies.
-`evidence-preserved` stays refused for evidence that still exists and for
-evidence that was never marked. Both commands stay refused for a path of an
+`evidence-preserved` stays refused for evidence that is still the marked file
+and for evidence that was never marked. `dispose` names this command in its
+answer when it stops on unusable evidence. Both commands stay refused for a path of an
 active owner and for a path of another repository.
 
 `dispose --path` does not require the evidence to be lost. It finishes any path

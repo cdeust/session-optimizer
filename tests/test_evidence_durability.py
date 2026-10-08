@@ -40,7 +40,9 @@ CASE_BLIND = Path(str(Path(__file__).resolve()).swapcase()).exists()
 CASE_BLIND_ONLY = "this file system distinguishes letter case"
 
 
-class DurabilityTests(base.CleanupTests):
+class DurabilityFixture(base.CleanupFixture):
+    """Session roots under the test directory and the command-line helpers."""
+
     def setUp(self):
         super().setUp()
         roots = {
@@ -97,6 +99,8 @@ class DurabilityTests(base.CleanupTests):
         self.end_session()
         self.assertFalse(checkpoint.exists())
 
+
+class DurabilityTests(DurabilityFixture):
     def test_evidence_the_purgers_select_is_refused(self):
         before = dict(self.state[self.path])
         for pattern in PURGED:
@@ -175,7 +179,7 @@ class DurabilityTests(base.CleanupTests):
 
     def test_lost_evidence_is_marked_again_and_disposed_by_a_later_session(self):
         self.lose_evidence()
-        self.assertIn("No such file", self.clean()["protected"])
+        self.assertIn("evidence is gone", self.clean()["protected"])
         self.command_line("evidence-preserved", evidence=str(self.evidence))
         self.assertEqual(self.state[self.path]["owner"], self.owner)
         result = self.command_line("dispose", dry_run=False)

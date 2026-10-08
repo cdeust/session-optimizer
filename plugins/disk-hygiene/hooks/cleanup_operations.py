@@ -152,21 +152,41 @@ def preserve(state, owner, path, evidence):
         record["evidence_head"] = git(path, "rev-parse", "HEAD")
 
 
-def evidence_lost(record):
-    """Evidence was marked and its file no longer exists."""
-    return bool(record.get("evidence")) and not os.path.lexists(record["evidence"])
-
-
 def evidence_ok(record):
+    """Raise Protected unless the marked evidence is the file that was marked.
+
+    Postcondition on return: the evidence is a regular file reached without a
+    symlink and its content hash equals the recorded one.
+    """
     evidence = record.get("evidence")
     if not evidence:
         raise Protected("preserved evidence has not been explicitly marked")
+    remedy = "; mark it again with evidence-preserved"
+    if os.path.islink(evidence):
+        raise Protected(f"preserved evidence is a symlink: {evidence}{remedy}")
+    if not os.path.lexists(evidence):
+        raise Protected(f"preserved evidence is gone: {evidence}{remedy}")
     identity(evidence)
     if (
         hashlib.sha256(Path(evidence).read_bytes()).hexdigest()
         != record["evidence_sha256"]
     ):
-        raise Protected("preserved evidence changed; mark it again")
+        raise Protected(f"preserved evidence changed: {evidence}{remedy}")
+
+
+def evidence_lost(record):
+    """Evidence was marked and is no longer the file that was marked.
+
+    Gone, replaced by a symlink (dangling or not) or changed: in each case the
+    recorded proof cannot be read back, and an ended owner cannot mark it again.
+    """
+    if not record.get("evidence"):
+        return False
+    try:
+        evidence_ok(record)
+    except (Protected, OSError):
+        return True
+    return False
 
 
 def live_head(record):

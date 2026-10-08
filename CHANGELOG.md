@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- A worktree whose marked evidence became a dangling symlink, or whose content
+  changed, stayed protected for ever once its owner session had ended: only a
+  missing file counted as lost evidence, so no later session could mark it
+  again. Both states now count, `evidence-preserved` accepts a new file for an
+  ended owner, and `dispose --path` runs every existing check afterwards.
+  `dispose` names `evidence-preserved` when it stops on unusable evidence
+  instead of answering `symlink path` or `[Errno 2]`.
 - `evidence-preserved` refuses a file inside the Git admin directory of a
   registered linked worktree (`<main>/.git/worktrees/<name>/`). `git worktree
   remove` deletes that directory, so evidence kept there did not outlive the
