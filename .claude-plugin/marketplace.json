@@ -83,7 +83,7 @@
       "name": "disk-hygiene",
       "source": "./plugins/disk-hygiene",
       "description": "Session-owned disk cleanup: registered git worktrees and local branches are removed after the linked PR head contains every local commit; ended-session runtime files (scratchpad, todos, debug logs) are purged; transcripts are kept unless deletion is enabled. DISK_HYGIENE_CLEANUP=off disables everything.",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "author": {
         "name": "Clement Deust",
         "email": "admin@ai-architect.tools"
