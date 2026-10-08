@@ -103,6 +103,11 @@ A registered worktree is removed only if all of these hold:
 - the preserved evidence file still matches its recorded hash;
 - git removes the worktree and then the local branch without force.
 
+When a registered path is already gone, `dispose` only drops its ledger entry:
+a worktree Git still lists, or whose local branch survives, stays protected and
+is reported with the reason. A removed worktree whose branch survives is handled
+by the branch disposal, as before.
+
 Remote PRs and remote branches are never touched. Dirty trees, unpushed commits,
 replaced directories, main checkouts and other sessions' paths stay in place and
 are reported.

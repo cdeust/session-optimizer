@@ -266,9 +266,67 @@ def dispose_temp(path, record, dry_run):
     return "removed disposable temporary directory"
 
 
+def listed(record, path):
+    """True while Git still lists a worktree at this path, usable or prunable."""
+    return any(
+        t["worktree"] == path or str(Path(t["worktree"]).resolve()) == path
+        for t in trees(record["repo"])
+    )
+
+
+def branch_survives(record):
+    return bool(
+        git(record["repo"], "for-each-ref", "--format=%(refname)", record["branch"])
+    )
+
+
+def release_vanished(path, record, dry_run):
+    """Drop the ledger entry of a registered path whose directory is gone.
+
+    Precondition: the owner matches and `path` does not exist on disk.
+    Postcondition: returns a status only when nothing of the registration is
+    left to protect (Git lists no worktree at the path and no local branch
+    survives); a listed worktree or a surviving branch raises Protected, and a
+    surviving branch of a removed worktree (pending_branch) returns None so the
+    branch disposal verifies it. The ledger is edited by the caller.
+    """
+    if record["kind"] == "worktree":
+        if listed(record, path):
+            raise Protected(
+                f"directory is gone but Git still lists the worktree: {path}"
+            )
+        if branch_survives(record):
+            if record.get("pending_branch"):
+                return None
+            raise Protected(
+                f"directory is gone but local branch {record['branch']} survives"
+            )
+    return (
+        "would drop ledger entry: directory is gone"
+        if dry_run
+        else "dropped ledger entry: directory is gone"
+    )
+
+
+def dispose_one(state, owner, path, options):
+    """The status of one owned path, or None when this call skips it.
+
+    A missing directory is decided before the identity read, which cannot
+    succeed for it; only a surviving branch of a removed worktree falls through.
+    """
+    record = state.get(path)
+    if record and record.get("owner") == owner and not os.path.lexists(path):
+        message = release_vanished(path, record, options["dry_run"])
+        if message is not None:
+            return message
+    record = owned(state, owner, path)
+    if record["kind"] == "temp" and not options["temps"]:
+        return None
+    return disposal_handler(record)(path, record, options["dry_run"])
+
+
 def dispose(state, owner, selected=None, options=None):
-    options = options or {}
-    dry_run, temps = options.get("dry_run", False), options.get("temps", True)
+    options = {"dry_run": False, "temps": True, **(options or {})}
     results = []
     targets = (
         [selected]
@@ -277,13 +335,11 @@ def dispose(state, owner, selected=None, options=None):
     )
     for path in targets:
         try:
-            record = owned(state, owner, path)
-            if record["kind"] == "temp" and not temps:
+            message = dispose_one(state, owner, path, options)
+            if message is None:
                 continue
-            handler = disposal_handler(record)
-            message = handler(path, record, dry_run)
             results.append({"path": path, "status": message})
-            if not dry_run:
+            if not options["dry_run"]:
                 del state[path]
         except (Protected, OSError, ValueError, KeyError) as exc:
             results.append({"path": path, "protected": str(exc)})

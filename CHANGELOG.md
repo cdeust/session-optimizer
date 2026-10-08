@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- `dispose --path` on a registered path whose directory is already gone drops
+  the ledger entry when Git lists no worktree there and no local branch
+  survives, as the README states. It answered `[Errno 2] No such file or
+  directory` and kept the entry for ever. A worktree Git still lists, or whose
+  local branch survives, stays protected with that reason.
 - `evidence-preserved` refuses a file that session cleanup removes: a
   context-guard checkpoint, a transcript, file history, a scratchpad or any
   other session-keyed file of Claude Code or Codex, whatever the transcript
