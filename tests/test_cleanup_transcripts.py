@@ -144,6 +144,20 @@ def test_claude_symlink_ancestor_is_protected(purgers, tmp_path):
     assert any(r.get("protected") == "symlink parent" for r in results)
 
 
+def test_claude_push_time_symlink_ancestor_is_protected(purgers, tmp_path):
+    """Push time removes `<sid>/tasks/`; through a symlinked project directory it
+    must not. The scratchpad is skipped at push time, so the artifact is a task."""
+    claude, _ = purgers
+    outside = tmp_path / "outside"
+    target = artifact(outside, f"{SID}/tasks/file")
+    root = tmp_path / "temp"
+    root.mkdir()
+    (root / "project").symlink_to(outside, target_is_directory=True)
+    results = claude.purge_now((tmp_path / "home", root), SID, lambda path: None)
+    assert target.exists()
+    assert any(r.get("protected") == "symlink parent" for r in results)
+
+
 def test_claude_nested_transcripts_wait_for_reader(purgers, tmp_path, monkeypatch):
     claude, _ = purgers
     monkeypatch.setenv("DISK_HYGIENE_TRANSCRIPTS", "delete")
