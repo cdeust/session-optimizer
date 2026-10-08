@@ -47,9 +47,10 @@ ENDED_PATTERNS = ("memories/checkpoints/{sid}.md",)
 TEMP_PATTERN = "*/{sid}"
 
 
-def temp_root():
-    base = Path(os.environ.get("CLAUDE_CODE_TMPDIR", "/tmp")).resolve()
-    return base / f"claude-{os.getuid()}"
+def temp_root(base=None):
+    """The host temp root; `base` is a recorded CLAUDE_CODE_TMPDIR, else the process's."""
+    base = os.environ.get("CLAUDE_CODE_TMPDIR", "/tmp") if base is None else base
+    return Path(base).resolve() / f"claude-{os.getuid()}"
 
 
 def claude_home():
@@ -62,16 +63,6 @@ def checked(session):
     if not isinstance(session, str) or not SESSION_ID.fullmatch(session):
         raise ValueError("session id is not a UUID; no path built from it")
     return session
-
-
-def scratch_entries(root, session):
-    sid = checked(session)
-    return [
-        entry
-        for pad in Path(root).glob(f"*/{sid}/scratchpad")
-        if pad.is_dir() and not pad.is_symlink()
-        for entry in pad.iterdir()
-    ]
 
 
 def home_paths(home, session, patterns):
@@ -122,7 +113,13 @@ def remove_tree(path, guard):
 
 
 def purge_now(locations, session, guard, dry_run=False):
-    """Push time: the host keeps running, so its scratchpad directory stays."""
+    """Push time: the host keeps running, so its scratchpad stays whole.
+
+    Precondition: `session` is the session whose hook just saw the push, so it
+    is alive by construction. Postcondition: nothing under
+    `<temp>/*/<session>/scratchpad` is removed; the scratchpad belongs to the
+    running session and its subagents (contracts, verdicts) until purge_ended.
+    """
     home, root = locations
     sid = checked(session)
     patterns = cleanup_patterns(include_transcripts=False)
@@ -130,7 +127,7 @@ def purge_now(locations, session, guard, dry_run=False):
     for session_dir in home_paths(root, sid, (TEMP_PATTERN,)):
         if session_dir.is_dir() and not session_dir.is_symlink():
             found += [c for c in session_dir.iterdir() if c.name != "scratchpad"]
-    results = [remove(p, guard, dry_run) for p in found + scratch_entries(root, sid)]
+    results = [remove(p, guard, dry_run) for p in found]
     return results + purge_transcripts(
         home, sid, guard, {"wait": lambda: not reader_running(), "dry_run": dry_run}
     )

@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -12,13 +13,18 @@ sys.path.insert(
 import cleanup_operations as h
 
 
-class CleanupTests(unittest.TestCase):
+class CleanupFixture(unittest.TestCase):
+    """A registered worktree with preserved evidence; carries no test of its own."""
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(
             prefix="hygiene-test-", dir=Path(__file__).parent
         )
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        environment = patch.dict(os.environ, self.environment())
+        environment.start()
+        self.addCleanup(environment.stop)
         self.repo = str(self.root / "main")
         self.remote = str(self.root / "remote.git")
         self.path = str(self.root / "tree\nwith space")
@@ -51,6 +57,10 @@ class CleanupTests(unittest.TestCase):
         self.patcher.start()
         self.addCleanup(self.patcher.stop)
 
+    def environment(self):
+        """Process environment in force from registration on (the host's roots)."""
+        return {}
+
     def command(self, argv, cwd=None):
         self.calls.append(argv)
         if argv[0] == "gh":
@@ -70,6 +80,8 @@ class CleanupTests(unittest.TestCase):
         self.assertIn("protected", self.clean())
         self.assertTrue(Path(self.path).exists())
 
+
+class CleanupTests(CleanupFixture):
     def test_success_unmerged_branch_removed(self):
         self.assertIn("removed worktree and local branch", self.clean()["status"])
         self.assertFalse(Path(self.path).exists())

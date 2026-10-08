@@ -9,6 +9,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import cleanup_intake
 from cleanup_processes import no_open_files
 from cleanup_registry import Protected
 from durable_evidence import chain, entry, purge_target
@@ -70,12 +71,53 @@ def linked(repo, path):
 
 def claim(state, path, owner, record):
     if path in state:
-        raise Protected("path already registered; ownership cannot be reassigned")
+        return reclaim(state[path], path, owner, record)
     for other in (p for p in state if p != "_ended"):
         if Path(other) in Path(path).parents or Path(path) in Path(other).parents:
             raise Protected("overlapping registered paths")
-    record.update(owner=owner, identity=identity(path))
+    # The host's roots, fixed when the session registers: evidence-preserved
+    # later checks durability against these, not against its own environment.
+    record.update(owner=owner, identity=identity(path), roots=cleanup_intake.roots())
     state[path] = record
+
+
+EVIDENCE_KEYS = ("evidence", "evidence_sha256", "evidence_head")
+
+
+def reclaim(existing, path, owner, record):
+    """Record the roots of a registration written before they were recorded.
+
+    Only the same owner, for the same directory and the same registration
+    (kind, repo, branch), and only while no roots are recorded: the record
+    gains its roots and loses its marked evidence, which was judged under the
+    roots of whatever process marked it (issue #55); `evidence-preserved` must
+    mark it again under the recorded roots. The PR link stays. Everything else
+    is refused.
+    """
+    if existing["owner"] != owner:
+        raise Protected("path already registered; ownership cannot be reassigned")
+    if "roots" in existing:
+        raise Protected("path already registered with its session roots")
+    if identity(path) != existing["identity"]:
+        raise Protected("registered directory was replaced")
+    if any(existing.get(k) != v for k, v in record.items() if k != "pr"):
+        raise Protected("registration does not match the registered record")
+    if record["pr"] is not None and record["pr"] != existing.get("pr"):
+        raise Protected(
+            f"registered PR link is {existing.get('pr')}, not {record['pr']}; "
+            "link-pr changes it"
+        )
+    existing["roots"] = cleanup_intake.roots()
+    for key in EVIDENCE_KEYS:
+        existing.pop(key, None)
+
+
+def no_roots(path):
+    return Protected(
+        f"no session roots recorded for {path}: it was registered before roots "
+        "were recorded; register it again from its owning session "
+        "(register-worktree records the roots)"
+    )
 
 
 def validate_pr(pr):
@@ -107,6 +149,41 @@ def owned(state, owner, path):
     return record
 
 
+def admin_entries(state):
+    """Entries of the Git admin directory of every registered linked worktree.
+
+    `git worktree remove` deletes <main>/.git/worktrees/<name>/, so a file there
+    does not outlive the disposal. A removed worktree (pending branch) has none.
+    """
+    return {
+        entry(git(p, "rev-parse", "--absolute-git-dir"))
+        for p, r in state.items()
+        if p != "_ended"
+        and r["kind"] == "worktree"
+        and not r.get("pending_branch")
+        and os.path.lexists(p)
+    }
+
+
+def owner_roots(path, record):
+    """The roots the owner registered under; refuse when this process has others.
+
+    A record written before roots were recorded has none and is refused: the
+    calling process's roots are not the owner's by any evidence (issue #55).
+    """
+    if "roots" not in record:
+        raise no_roots(path)
+    current = cleanup_intake.roots()
+    recorded = record["roots"]
+    differ = sorted(key for key in current if current[key] != recorded.get(key))
+    if differ:
+        raise Protected(
+            "this process runs under other session roots than the owner's host "
+            f"({', '.join(differ)}); run evidence-preserved with the owner's environment"
+        )
+    return recorded
+
+
 def preserve(state, owner, path, evidence):
     record = owned(state, owner, path)
     evidence = Path(evidence)
@@ -115,7 +192,12 @@ def preserve(state, owner, path, evidence):
     # A registered path already removed (pending branch) holds nothing.
     if any(os.path.lexists(p) and entry(p) in through for p in state if p != "_ended"):
         raise Protected("evidence must be outside every disposable directory")
-    target = purge_target(evidence)
+    if admin_entries(state) & through:
+        raise Protected(
+            "evidence must not be inside the Git admin directory of a registered "
+            "worktree: git worktree remove deletes it"
+        )
+    target = purge_target(evidence, owner_roots(path, record))
     if target:
         raise Protected(
             f"evidence must outlive its session: session cleanup removes {target}; "
@@ -131,21 +213,41 @@ def preserve(state, owner, path, evidence):
         record["evidence_head"] = git(path, "rev-parse", "HEAD")
 
 
-def evidence_lost(record):
-    """Evidence was marked and its file no longer exists."""
-    return bool(record.get("evidence")) and not os.path.lexists(record["evidence"])
-
-
 def evidence_ok(record):
+    """Raise Protected unless the marked evidence is the file that was marked.
+
+    Postcondition on return: the evidence is a regular file reached without a
+    symlink and its content hash equals the recorded one.
+    """
     evidence = record.get("evidence")
     if not evidence:
         raise Protected("preserved evidence has not been explicitly marked")
+    remedy = "; mark it again with evidence-preserved"
+    if os.path.islink(evidence):
+        raise Protected(f"preserved evidence is a symlink: {evidence}{remedy}")
+    if not os.path.lexists(evidence):
+        raise Protected(f"preserved evidence is gone: {evidence}{remedy}")
     identity(evidence)
     if (
         hashlib.sha256(Path(evidence).read_bytes()).hexdigest()
         != record["evidence_sha256"]
     ):
-        raise Protected("preserved evidence changed; mark it again")
+        raise Protected(f"preserved evidence changed: {evidence}{remedy}")
+
+
+def evidence_lost(record):
+    """Evidence was marked and is no longer the file that was marked.
+
+    Gone, replaced by a symlink (dangling or not) or changed: in each case the
+    recorded proof cannot be read back, and an ended owner cannot mark it again.
+    """
+    if not record.get("evidence"):
+        return False
+    try:
+        evidence_ok(record)
+    except (Protected, OSError):
+        return True
+    return False
 
 
 def live_head(record):
@@ -266,9 +368,71 @@ def dispose_temp(path, record, dry_run):
     return "removed disposable temporary directory"
 
 
+def listed(record, path):
+    """True while Git still lists a worktree at this path, usable or prunable."""
+    return any(
+        t["worktree"] == path or str(Path(t["worktree"]).resolve()) == path
+        for t in trees(record["repo"])
+    )
+
+
+def branch_survives(record):
+    return bool(
+        git(record["repo"], "for-each-ref", "--format=%(refname)", record["branch"])
+    )
+
+
+def release_vanished(path, record, dry_run):
+    """Drop the ledger entry of a registered path whose directory is gone.
+
+    Precondition: the owner matches and `path` does not exist on disk.
+    Postcondition: returns a status only when nothing of the registration is
+    left to protect (Git lists no worktree at the path and no local branch
+    survives); a listed worktree or a surviving branch raises Protected, and a
+    surviving branch of a removed worktree (pending_branch) returns None so the
+    branch disposal verifies it. The ledger is edited by the caller.
+    """
+    if record["kind"] == "worktree":
+        if listed(record, path):
+            raise Protected(
+                f"directory is gone but Git still lists the worktree: {path}"
+            )
+        if branch_survives(record):
+            if record.get("pending_branch"):
+                return None
+            raise Protected(
+                f"directory is gone but local branch {record['branch']} survives"
+            )
+    return (
+        "would drop ledger entry: directory is gone"
+        if dry_run
+        else "dropped ledger entry: directory is gone"
+    )
+
+
+def dispose_one(state, owner, path, options):
+    """The status of one owned path, or None when this call skips it.
+
+    A missing directory is decided before the identity read, which cannot
+    succeed for it; only a surviving branch of a removed worktree falls through.
+    A record without session roots is refused before anything on disk is acted
+    on; a vanished one holds nothing, so its entry is dropped like any other.
+    """
+    record = state.get(path)
+    if record and record.get("owner") == owner and not os.path.lexists(path):
+        message = release_vanished(path, record, options["dry_run"])
+        if message is not None:
+            return message
+    record = owned(state, owner, path)
+    if "roots" not in record:
+        raise no_roots(path)
+    if record["kind"] == "temp" and not options["temps"]:
+        return None
+    return disposal_handler(record)(path, record, options["dry_run"])
+
+
 def dispose(state, owner, selected=None, options=None):
-    options = options or {}
-    dry_run, temps = options.get("dry_run", False), options.get("temps", True)
+    options = {"dry_run": False, "temps": True, **(options or {})}
     results = []
     targets = (
         [selected]
@@ -277,13 +441,11 @@ def dispose(state, owner, selected=None, options=None):
     )
     for path in targets:
         try:
-            record = owned(state, owner, path)
-            if record["kind"] == "temp" and not temps:
+            message = dispose_one(state, owner, path, options)
+            if message is None:
                 continue
-            handler = disposal_handler(record)
-            message = handler(path, record, dry_run)
             results.append({"path": path, "status": message})
-            if not dry_run:
+            if not options["dry_run"]:
                 del state[path]
         except (Protected, OSError, ValueError, KeyError) as exc:
             results.append({"path": path, "protected": str(exc)})

@@ -42,8 +42,11 @@ def chain(path):
     return {entry(step) for step in (path, *path.parents)}
 
 
-def purge_target(evidence):
+def purge_target(evidence, roots):
     """The session-owned path that holds this file, or None.
+
+    `roots` are the owner host's homes (cleanup_intake.roots() keys), never the
+    calling process's: the purge that follows runs in the host's environment.
 
     Every purge selector embeds a session id, so a path without one is never
     selected. The purgers' own globs are evaluated on the file system: there is
@@ -52,9 +55,11 @@ def purge_target(evidence):
     """
     evidence = Path(evidence)
     through = chain(evidence)
-    claude, codex = session_purge.claude_home(), codex_purge.roots()[0]
+    claude, codex = Path(roots["claude_home"]), Path(roots["codex_home"])
     # The Claude temp root is named after the user id, which only POSIX has.
-    temp = session_purge.temp_root() if hasattr(os, "getuid") else None
+    temp = (
+        session_purge.temp_root(roots["claude_tmp"]) if hasattr(os, "getuid") else None
+    )
     for sid in sorted({sid.lower() for sid in ANY_CASE_ID.findall(str(evidence))}):
         targets = session_purge.home_paths(claude, sid, CLAUDE_PATTERNS)
         targets += session_purge.home_paths(codex, sid, CODEX_PATTERNS)

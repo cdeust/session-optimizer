@@ -11,6 +11,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- `evidence-preserved` no longer judges durability by the environment of the
+  process that runs it. The Claude home, Claude temp directory and Codex home
+  are recorded when a worktree or temporary directory is registered, the check
+  reads them from the record, and a process running under other roots is
+  refused with the differing names. A file under the host's home, which session
+  end removes, could be accepted as durable when `CLAUDE_CONFIG_DIR` or
+  `CODEX_HOME` differed from the host's. A path registered before roots were
+  recorded (by the installed 0.1.1 copy) has none and is refused at
+  `evidence-preserved` and at `dispose`, with a message naming the path, until
+  its owning session runs `register-worktree` for it again; on a path it
+  already owns, that command records the roots and drops the marked evidence
+  (`evidence`, `evidence_sha256`, `evidence_head`), keeping the PR link, so
+  `evidence-preserved` must mark it again under the recorded roots. Taking the
+  roots of the first `evidence-preserved` call instead, or keeping evidence
+  marked by 0.1.1, would have trusted a judgement made under the caller's
+  roots, the failure this entry fixes: a session checkpoint marked by 0.1.1
+  and re-registered was disposed on, although session end removes it.
+  Every earlier registration still on disk meets this refusal once the fix is
+  installed; a worktree whose owner has ended stays reported until its worktree
+  and branch are removed by hand. A temporary directory registered before
+  roots were recorded cannot be registered again (`register-worktree` refuses
+  a path that is not a linked worktree, and `create-temp` makes a new one):
+  deleting the directory is its only exit, after which `dispose` drops the
+  entry. The entries of earlier registrations whose directory is already gone
+  hold nothing to protect and are dropped by `dispose` as described below (the
+  author's ledger held ten such entries and two live worktrees at review time,
+  and no temporary directory; the count moves with every session). The ledger also
+  refuses a record whose `roots` is not a dict of the three recorded roots
+  with string values. `register-worktree` on a record it already owns refuses
+  a PR URL that differs from the recorded one, naming both and `link-pr`; it
+  accepted the call and kept the recorded link without a word.
+- A worktree whose marked evidence became a dangling symlink, or whose content
+  changed, stayed protected for ever once its owner session had ended: only a
+  missing file counted as lost evidence, so no later session could mark it
+  again. Both states now count, `evidence-preserved` accepts a new file for an
+  ended owner, and `dispose --path` runs every existing check afterwards.
+  `dispose` names `evidence-preserved` when it stops on unusable evidence
+  instead of answering `symlink path` or `[Errno 2]`.
+- `evidence-preserved` refuses a file inside the Git admin directory of a
+  registered linked worktree (`<main>/.git/worktrees/<name>/`). `git worktree
+  remove` deletes that directory, so evidence kept there did not outlive the
+  disposal.
+- The push-time purge of `--host claude` no longer empties the scratchpad
+  `<claude temp>/<project>/<session>/scratchpad/` of the running session. A
+  push is not the end of a session's need for its own scratch files: a session
+  with five subagents lost their contract and verdict files at a push. The
+  scratchpad is removed at session end, as before.
+- `dispose --path` on a registered path whose directory is already gone drops
+  the ledger entry when Git lists no worktree there and no local branch
+  survives, as the README states. It answered `[Errno 2] No such file or
+  directory` and kept the entry for ever. A worktree Git still lists, or whose
+  local branch survives, stays protected with that reason.
 - `evidence-preserved` refuses a file that session cleanup removes: a
   context-guard checkpoint, a transcript, file history, a scratchpad or any
   other session-keyed file of Claude Code or Codex, whatever the transcript

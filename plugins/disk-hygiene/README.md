@@ -69,11 +69,44 @@ cleanup removes under any transcript policy: a context-guard checkpoint
 or another session-keyed file of Claude Code or Codex. The file is recognised by
 identity, not by spelling: on a file system that ignores letter case,
 `.CLAUDE/memories/checkpoints/<SESSION>.md` is refused like the checkpoint it
-opens. The same holds for a file inside a registered disposable directory.
+opens. The same holds for a file inside a registered disposable directory, and for a
+file inside the Git admin directory of a registered linked worktree
+(`<main>/.git/worktrees/<name>/`), which `git worktree remove` deletes.
 
-A record written by an earlier version may name such a file. Once that file is
-gone and the owner's session end is recorded, a later session working in the
-same main checkout finishes the cleanup:
+The check answers for the owner's host, not for the process that runs it. The
+Claude home, Claude temp directory and Codex home (`CLAUDE_CONFIG_DIR`,
+`CLAUDE_CODE_TMPDIR`, `CODEX_HOME`) are recorded when the path is registered, and
+`evidence-preserved` refuses to run under other roots, naming the ones that
+differ. A path registered before roots were recorded (the installed 0.1.1 copy)
+has none, and no other process can supply them after the fact:
+`evidence-preserved` and `dispose` refuse it, naming the path, until its owning
+session runs `register-worktree` for it again. On a path it already owns, that
+command records the roots and drops the marked evidence, which was judged under
+the roots of whatever process marked it: `evidence-preserved` must mark it again
+under the recorded roots before `dispose` acts, and a file session cleanup
+removes is refused there like any other. The PR link and the rest of the record
+stay. A session that registers again and ends without marking leaves a
+never-marked record, which stays until its worktree and branch are removed by
+hand. A registered path whose
+directory is already gone holds nothing to judge; its ledger entry is dropped as
+described under "What is removed", roots or not. A removed worktree whose local
+branch is still pending and has no roots stays reported until that branch is
+gone. Such a record of an owner whose session has ended has no session left to
+register it: it stays reported at every SessionStart until its worktree and local
+branch are removed by hand (`git worktree remove`, `git branch -d`), after which
+`dispose` drops the entry. A temporary directory registered before roots were
+recorded cannot be registered again: `register-worktree` refuses a path that is
+not a linked worktree, and `create-temp` makes a new directory. Its only exit is
+deleting the directory by hand, after which `dispose` drops the entry. On a
+worktree it already owns, `register-worktree --pr` must name the recorded PR
+link or none; another URL is refused, and `link-pr` is the command that changes
+the link.
+
+A record written by an earlier version may name such a file. The same holds for
+evidence that was marked and is no longer usable: the file is gone, was replaced
+by a symlink (dangling or not), or its content changed. Once that is so and the
+owner's session end is recorded, a later session working in the same main
+checkout finishes the cleanup:
 
 ```sh
 cd /abs/main
@@ -82,8 +115,9 @@ python3 "$CLEANUP" --host claude --session "$SESSION_ID" dispose --path /abs/mai
 ```
 
 Ownership does not change and every check listed below still applies.
-`evidence-preserved` stays refused for evidence that still exists and for
-evidence that was never marked. Both commands stay refused for a path of an
+`evidence-preserved` stays refused for evidence that is still the marked file
+and for evidence that was never marked. `dispose` names this command in its
+answer when it stops on unusable evidence. Both commands stay refused for a path of an
 active owner and for a path of another repository.
 
 `dispose --path` does not require the evidence to be lost. It finishes any path
@@ -103,14 +137,23 @@ A registered worktree is removed only if all of these hold:
 - the preserved evidence file still matches its recorded hash;
 - git removes the worktree and then the local branch without force.
 
+When a registered path is already gone, `dispose` only drops its ledger entry:
+a worktree Git still lists, or whose local branch survives, stays protected and
+is reported with the reason. A removed worktree whose branch survives is handled
+by the branch disposal, as before.
+
 Remote PRs and remote branches are never touched. Dirty trees, unpushed commits,
 replaced directories, main checkouts and other sessions' paths stay in place and
 are reported.
 
-Runtime files of a session (scratchpad, todos, debug logs, session env, security
-and statusline state) are removed after a recognised push, and everything of an
-ended session is removed at session end. Files still open in a process are kept
-and retried at later events. No periodic background sweep runs.
+Runtime files of a session (todos, debug logs, session env, security and
+statusline state) are removed after a recognised push, and so is every child of
+the session's temp directory `<claude temp>/<project>/<session>/` except
+`scratchpad/`: `tasks/` included, which the host recreates while it runs. The
+scratchpad stays: the session that pushed is still running, and so are its
+subagents, whose contract and verdict files live there. Everything of an ended
+session, scratchpad included, is removed at session end. Files still open in a
+process are kept and retried at later events. No periodic background sweep runs.
 
 A push is recognised only from the command of a shell tool (`git push`,
 `gh pr create`) or an MCP `create_pull_request` call. File content, grep
