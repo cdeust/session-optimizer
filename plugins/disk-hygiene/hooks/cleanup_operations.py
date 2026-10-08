@@ -102,6 +102,11 @@ def reclaim(existing, path, owner, record):
         raise Protected("registered directory was replaced")
     if any(existing.get(k) != v for k, v in record.items() if k != "pr"):
         raise Protected("registration does not match the registered record")
+    if record["pr"] is not None and record["pr"] != existing.get("pr"):
+        raise Protected(
+            f"registered PR link is {existing.get('pr')}, not {record['pr']}; "
+            "link-pr changes it"
+        )
     existing["roots"] = cleanup_intake.roots()
     for key in EVIDENCE_KEYS:
         existing.pop(key, None)

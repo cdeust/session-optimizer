@@ -78,10 +78,22 @@ class OwnerRootsTests(durability.DurabilityFixture):
         project.write_text("review evidence")
         return project
 
-    def register_again(self, owner=None):
+    def register_again(self, owner=None, pr=None):
         h.register_worktree(
-            self.state, owner or self.owner, self.path, {"repo": self.repo, "pr": None}
+            self.state, owner or self.owner, self.path, {"repo": self.repo, "pr": pr}
         )
+
+    def test_registering_again_with_another_pr_link_is_refused(self):
+        before = self.legacy_record()
+        other = self.pr.replace("/pull/1", "/pull/9")
+        with self.assertRaisesRegex(Protected, "link-pr") as refusal:
+            self.register_again(pr=other)
+        self.assertIn(self.pr, str(refusal.exception))
+        self.assertIn(other, str(refusal.exception))
+        self.assertEqual(self.state[self.path], before)
+        self.register_again(pr=self.pr)
+        self.assertEqual(self.state[self.path]["pr"], self.pr)
+        self.assertIn("roots", self.state[self.path])
 
     def test_a_record_without_roots_is_refused_at_evidence_preserved(self):
         before = self.legacy_record()
