@@ -125,11 +125,13 @@ replaced directories, main checkouts and other sessions' paths stay in place and
 are reported.
 
 Runtime files of a session (todos, debug logs, session env, security and
-statusline state) are removed after a recognised push. The scratchpad is not: the
-session that pushed is still running, and so are its subagents, whose contract and
-verdict files live there. Everything of an ended session, scratchpad included, is
-removed at session end. Files still open in a process are kept
-and retried at later events. No periodic background sweep runs.
+statusline state) are removed after a recognised push, and so is every child of
+the session's temp directory `<claude temp>/<project>/<session>/` except
+`scratchpad/`: `tasks/` included, which the host recreates while it runs. The
+scratchpad stays: the session that pushed is still running, and so are its
+subagents, whose contract and verdict files live there. Everything of an ended
+session, scratchpad included, is removed at session end. Files still open in a
+process are kept and retried at later events. No periodic background sweep runs.
 
 A push is recognised only from the command of a shell tool (`git push`,
 `gh pr create`) or an MCP `create_pull_request` call. File content, grep
