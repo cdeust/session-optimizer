@@ -107,6 +107,22 @@ def owned(state, owner, path):
     return record
 
 
+def admin_entries(state):
+    """Entries of the Git admin directory of every registered linked worktree.
+
+    `git worktree remove` deletes <main>/.git/worktrees/<name>/, so a file there
+    does not outlive the disposal. A removed worktree (pending branch) has none.
+    """
+    return {
+        entry(git(p, "rev-parse", "--absolute-git-dir"))
+        for p, r in state.items()
+        if p != "_ended"
+        and r["kind"] == "worktree"
+        and not r.get("pending_branch")
+        and os.path.lexists(p)
+    }
+
+
 def preserve(state, owner, path, evidence):
     record = owned(state, owner, path)
     evidence = Path(evidence)
@@ -115,6 +131,11 @@ def preserve(state, owner, path, evidence):
     # A registered path already removed (pending branch) holds nothing.
     if any(os.path.lexists(p) and entry(p) in through for p in state if p != "_ended"):
         raise Protected("evidence must be outside every disposable directory")
+    if admin_entries(state) & through:
+        raise Protected(
+            "evidence must not be inside the Git admin directory of a registered "
+            "worktree: git worktree remove deletes it"
+        )
     target = purge_target(evidence)
     if target:
         raise Protected(

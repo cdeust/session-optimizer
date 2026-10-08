@@ -75,6 +75,19 @@ class DurabilityTests(base.CleanupTests):
                 wait=lambda: True,
             )
 
+    def refusal(self, evidence):
+        """The reason `preserve` refuses this evidence."""
+        with self.assertRaises(Protected) as refusal:
+            h.preserve(self.state, self.owner, self.path, str(evidence))
+        return str(refusal.exception)
+
+    def protected(self, command, **options):
+        """The reason a command is refused, from a raise or from a result."""
+        try:
+            return self.command_line(command, **options)[0]["protected"]
+        except Protected as refusal:
+            return str(refusal)
+
     def lose_evidence(self):
         """A record written before the durability check, then its session ends."""
         checkpoint = self.session_file(PURGED[0])
@@ -88,10 +101,8 @@ class DurabilityTests(base.CleanupTests):
         before = dict(self.state[self.path])
         for pattern in PURGED:
             with self.subTest(pattern):
-                evidence = str(self.session_file(pattern))
-                with self.assertRaises(Protected) as refusal:
-                    h.preserve(self.state, self.owner, self.path, evidence)
-                self.assertIn("outlive its session", str(refusal.exception))
+                refusal = self.refusal(self.session_file(pattern))
+                self.assertIn("outlive its session", refusal)
         self.assertEqual(self.state[self.path], before)
 
     def test_refusal_does_not_depend_on_the_retention_policy(self):
@@ -118,9 +129,7 @@ class DurabilityTests(base.CleanupTests):
         }
         for part, evidence in spellings.items():
             with self.subTest(part):
-                with self.assertRaises(Protected) as refusal:
-                    h.preserve(self.state, self.owner, self.path, str(evidence))
-                self.assertIn("outlive its session", str(refusal.exception))
+                self.assertIn("outlive its session", self.refusal(evidence))
 
     def test_evidence_inside_a_disposable_directory_is_refused(self):
         evidence = Path(self.path) / "review.md"
@@ -182,11 +191,7 @@ class DurabilityTests(base.CleanupTests):
             ("dispose", {"dry_run": False}),
         ):
             with self.subTest(command):
-                try:
-                    result = self.command_line(command, **options)
-                except Protected as refusal:
-                    result = [{"protected": str(refusal)}]
-                self.assertIn("not owned", result[0]["protected"])
+                self.assertIn("not owned", self.protected(command, **options))
         self.assertTrue(Path(self.path).exists())
 
     def test_another_repository_is_never_acted_for(self):

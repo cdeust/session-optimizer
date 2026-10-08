@@ -15,7 +15,7 @@ import test_worktree_cleanup as base
 h = base.h
 
 
-class VanishedPathTests(base.CleanupTests):
+class VanishedPathTests(base.CleanupFixture):
     def remove_directory(self):
         shutil.rmtree(self.path)
 

@@ -69,7 +69,9 @@ cleanup removes under any transcript policy: a context-guard checkpoint
 or another session-keyed file of Claude Code or Codex. The file is recognised by
 identity, not by spelling: on a file system that ignores letter case,
 `.CLAUDE/memories/checkpoints/<SESSION>.md` is refused like the checkpoint it
-opens. The same holds for a file inside a registered disposable directory.
+opens. The same holds for a file inside a registered disposable directory, and for a
+file inside the Git admin directory of a registered linked worktree
+(`<main>/.git/worktrees/<name>/`), which `git worktree remove` deletes.
 
 A record written by an earlier version may name such a file. Once that file is
 gone and the owner's session end is recorded, a later session working in the

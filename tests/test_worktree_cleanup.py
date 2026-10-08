@@ -12,7 +12,9 @@ sys.path.insert(
 import cleanup_operations as h
 
 
-class CleanupTests(unittest.TestCase):
+class CleanupFixture(unittest.TestCase):
+    """A registered worktree with preserved evidence; carries no test of its own."""
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(
             prefix="hygiene-test-", dir=Path(__file__).parent
@@ -70,6 +72,8 @@ class CleanupTests(unittest.TestCase):
         self.assertIn("protected", self.clean())
         self.assertTrue(Path(self.path).exists())
 
+
+class CleanupTests(CleanupFixture):
     def test_success_unmerged_branch_removed(self):
         self.assertIn("removed worktree and local branch", self.clean()["status"])
         self.assertFalse(Path(self.path).exists())

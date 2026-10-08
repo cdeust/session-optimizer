@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- `evidence-preserved` refuses a file inside the Git admin directory of a
+  registered linked worktree (`<main>/.git/worktrees/<name>/`). `git worktree
+  remove` deletes that directory, so evidence kept there did not outlive the
+  disposal.
 - The push-time purge of `--host claude` no longer empties the scratchpad
   `<claude temp>/<project>/<session>/scratchpad/` of the running session. A
   push is not the end of a session's need for its own scratch files: a session
