@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### disk-hygiene 0.1.1
+### disk-hygiene 0.1.2
 
 #### Fixed
 
@@ -63,6 +63,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   survives, as the README states. It answered `[Errno 2] No such file or
   directory` and kept the entry for ever. A worktree Git still lists, or whose
   local branch survives, stays protected with that reason.
+
+### disk-hygiene 0.1.1
+
+#### Fixed
+
 - `evidence-preserved` refuses a file that session cleanup removes: a
   context-guard checkpoint, a transcript, file history, a scratchpad or any
   other session-keyed file of Claude Code or Codex, whatever the transcript

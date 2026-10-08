@@ -1,6 +1,6 @@
 {
   "name": "disk-hygiene",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Session-owned disk cleanup for Codex and Claude Code: registered git worktrees and their local branches are removed once the linked PR head contains every local commit, and ended-session runtime files are purged. Rollouts are kept unless deletion is explicitly enabled.",
   "author": {
     "name": "Clement Deust",
