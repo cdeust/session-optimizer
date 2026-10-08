@@ -81,7 +81,13 @@ differ. A path registered before roots were recorded (the installed 0.1.1 copy)
 has none, and no other process can supply them after the fact:
 `evidence-preserved` and `dispose` refuse it, naming the path, until its owning
 session runs `register-worktree` for it again. On a path it already owns, that
-command records the roots and changes nothing else. A registered path whose
+command records the roots and drops the marked evidence, which was judged under
+the roots of whatever process marked it: `evidence-preserved` must mark it again
+under the recorded roots before `dispose` acts, and a file session cleanup
+removes is refused there like any other. The PR link and the rest of the record
+stay. A session that registers again and ends without marking leaves a
+never-marked record, which stays until its worktree and branch are removed by
+hand. A registered path whose
 directory is already gone holds nothing to judge; its ledger entry is dropped as
 described under "What is removed", roots or not. A removed worktree whose local
 branch is still pending and has no roots stays reported until that branch is

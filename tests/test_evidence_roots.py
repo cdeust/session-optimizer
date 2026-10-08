@@ -5,6 +5,7 @@ process that ran `evidence-preserved`; with other roots than the host session a
 file under the host's home, which session end removes, was accepted as durable.
 """
 
+import hashlib
 import os
 import shutil
 import sys
@@ -98,12 +99,33 @@ class OwnerRootsTests(durability.DurabilityFixture):
         self.assertTrue(Path(self.path).exists())
         self.assertEqual(self.state[self.path], before)
 
-    def test_registering_again_records_the_roots_and_nothing_else(self):
+    def test_registering_again_records_the_roots_and_clears_the_evidence(self):
         before = self.legacy_record()
         self.register_again()
         record = self.state[self.path]
         self.assertEqual(record["roots"]["claude_home"], str(self.root / "claude"))
-        self.assertEqual({k: v for k, v in record.items() if k != "roots"}, before)
+        for key in h.EVIDENCE_KEYS:
+            self.assertNotIn(key, record)
+        kept = {k: v for k, v in before.items() if k not in h.EVIDENCE_KEYS}
+        self.assertEqual({k: v for k, v in record.items() if k != "roots"}, kept)
+        self.assertEqual(record["pr"], self.pr)
+        self.assertIn("not been explicitly marked", self.clean()["protected"])
+        h.preserve(self.state, self.owner, self.path, str(self.evidence))
+        self.assertIn("removed worktree", self.clean()["status"])
+
+    def test_evidence_a_session_purges_is_not_re_trusted_on_re_registration(self):
+        """The reviewer's probe: 0.1.1 marked the owner's checkpoint as evidence."""
+        checkpoint = self.session_file(durability.PURGED[0])
+        record = self.state[self.path]
+        record["evidence"] = str(checkpoint)
+        record["evidence_sha256"] = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+        self.legacy_record()
+        self.register_again()
+        self.assertIn("not been explicitly marked", self.clean()["protected"])
+        self.assertTrue(Path(self.path).exists())
+        self.assertIn("outlive its session", self.refusal(checkpoint))
+        self.assertIn("not been explicitly marked", self.clean()["protected"])
+        h.preserve(self.state, self.owner, self.path, str(self.project_file()))
         self.assertIn("removed worktree", self.clean()["status"])
 
     def test_registering_again_is_refused_for_another_owner_or_recorded_roots(self):

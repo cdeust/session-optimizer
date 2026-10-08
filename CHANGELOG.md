@@ -21,9 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recorded (by the installed 0.1.1 copy) has none and is refused at
   `evidence-preserved` and at `dispose`, with a message naming the path, until
   its owning session runs `register-worktree` for it again; on a path it
-  already owns, that command records the roots and changes nothing else.
-  Taking the roots of the first `evidence-preserved` call instead would have
-  judged that call under the caller's roots, the failure this entry fixes.
+  already owns, that command records the roots and drops the marked evidence
+  (`evidence`, `evidence_sha256`, `evidence_head`), keeping the PR link, so
+  `evidence-preserved` must mark it again under the recorded roots. Taking the
+  roots of the first `evidence-preserved` call instead, or keeping evidence
+  marked by 0.1.1, would have trusted a judgement made under the caller's
+  roots, the failure this entry fixes: a session checkpoint marked by 0.1.1
+  and re-registered was disposed on, although session end removes it.
   Every earlier registration still on disk meets this refusal once the fix is
   installed (two live worktrees in the author's ledger); one whose owner has
   ended stays reported until its worktree and branch are removed by hand. The

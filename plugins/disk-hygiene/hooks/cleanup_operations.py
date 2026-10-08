@@ -81,12 +81,18 @@ def claim(state, path, owner, record):
     state[path] = record
 
 
+EVIDENCE_KEYS = ("evidence", "evidence_sha256", "evidence_head")
+
+
 def reclaim(existing, path, owner, record):
     """Record the roots of a registration written before they were recorded.
 
     Only the same owner, for the same directory and the same registration
     (kind, repo, branch), and only while no roots are recorded: the record
-    gains its roots and nothing else changes. Everything else is refused.
+    gains its roots and loses its marked evidence, which was judged under the
+    roots of whatever process marked it (issue #55); `evidence-preserved` must
+    mark it again under the recorded roots. The PR link stays. Everything else
+    is refused.
     """
     if existing["owner"] != owner:
         raise Protected("path already registered; ownership cannot be reassigned")
@@ -97,6 +103,8 @@ def reclaim(existing, path, owner, record):
     if any(existing.get(k) != v for k, v in record.items() if k != "pr"):
         raise Protected("registration does not match the registered record")
     existing["roots"] = cleanup_intake.roots()
+    for key in EVIDENCE_KEYS:
+        existing.pop(key, None)
 
 
 def no_roots(path):
