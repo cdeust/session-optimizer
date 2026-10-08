@@ -112,9 +112,11 @@ Remote PRs and remote branches are never touched. Dirty trees, unpushed commits,
 replaced directories, main checkouts and other sessions' paths stay in place and
 are reported.
 
-Runtime files of a session (scratchpad, todos, debug logs, session env, security
-and statusline state) are removed after a recognised push, and everything of an
-ended session is removed at session end. Files still open in a process are kept
+Runtime files of a session (todos, debug logs, session env, security and
+statusline state) are removed after a recognised push. The scratchpad is not: the
+session that pushed is still running, and so are its subagents, whose contract and
+verdict files live there. Everything of an ended session, scratchpad included, is
+removed at session end. Files still open in a process are kept
 and retried at later events. No periodic background sweep runs.
 
 A push is recognised only from the command of a shell tool (`git push`,

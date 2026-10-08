@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Fixed
 
+- The push-time purge of `--host claude` no longer empties the scratchpad
+  `<claude temp>/<project>/<session>/scratchpad/` of the running session. A
+  push is not the end of a session's need for its own scratch files: a session
+  with five subagents lost their contract and verdict files at a push. The
+  scratchpad is removed at session end, as before.
 - `dispose --path` on a registered path whose directory is already gone drops
   the ledger entry when Git lists no worktree there and no local branch
   survives, as the README states. It answered `[Errno 2] No such file or

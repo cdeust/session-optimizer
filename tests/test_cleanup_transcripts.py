@@ -42,6 +42,28 @@ def test_claude_default_preserves_resume_data_at_push_and_end(purgers, tmp_path)
     assert [p.read_text() for p in paths] == ["retained transcript"] * len(paths)
 
 
+def test_push_time_purge_keeps_the_scratchpad_of_a_live_session(purgers, tmp_path):
+    """source: measured 2026-10-08 08:52. A push emptied the scratchpad of the
+    running session, with the contract and verdict files of its subagents."""
+    claude, _ = purgers
+    home, temp = tmp_path / "claude", tmp_path / "tmp"
+    kept = artifact(temp, f"project/{SID}/scratchpad/contract.md")
+    nested = artifact(temp, f"project/{SID}/scratchpad/verdicts/review.md")
+    claude.purge_now((home, temp), SID, lambda path: None)
+    assert kept.read_text() == "retained transcript"
+    assert nested.read_text() == "retained transcript"
+
+
+def test_session_end_removes_the_scratchpad_of_an_ended_session(purgers, tmp_path):
+    claude, _ = purgers
+    home, temp = tmp_path / "claude", tmp_path / "tmp"
+    pad = artifact(temp, f"project/{SID}/scratchpad/contract.md")
+    other = artifact(temp, f"project/{OTHER}/scratchpad/contract.md")
+    claude.purge_ended((home, temp), SID, lambda path: None, wait=lambda: True)
+    assert not pad.exists()
+    assert other.exists()
+
+
 def test_claude_delete_requires_opt_in_and_reader_completion(
     purgers, tmp_path, monkeypatch
 ):
@@ -115,7 +137,9 @@ def test_claude_symlink_ancestor_is_protected(purgers, tmp_path):
     root = tmp_path / "temp"
     root.mkdir()
     (root / "project").symlink_to(outside, target_is_directory=True)
-    results = claude.purge_now((tmp_path / "home", root), SID, lambda path: None)
+    results = claude.purge_ended(
+        (tmp_path / "home", root), SID, lambda path: None, wait=lambda: True
+    )
     assert target.exists()
     assert any(r.get("protected") == "symlink parent" for r in results)
 
