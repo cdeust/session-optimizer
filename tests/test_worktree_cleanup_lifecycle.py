@@ -102,6 +102,26 @@ class LifecycleTests(base.CleanupTests):
                 pass
             self.assertEqual(ledger.read_text(), text)
 
+    def ledger_with_roots(self, roots):
+        """A ledger holding one temp record whose session roots are `roots`."""
+        record = {"kind": "temp", "owner": "o", "identity": [], "roots": roots}
+        ledger = self.root / "registry.json"
+        ledger.write_text(json.dumps({"/path": record}))
+        return ledger
+
+    def test_malformed_session_roots_are_refused(self):
+        """Not a dict, a non-string value, or a key set other than the three roots."""
+        for roots in ([], {"claude_home": 1}, {"claude_home": "/r"}, {}):
+            with (
+                self.subTest(roots),
+                self.assertRaisesRegex(Protected, "invalid registered session roots"),
+                registry(self.ledger_with_roots(roots)),
+            ):
+                pass
+        complete = {k: "/r" for k in ("claude_home", "claude_tmp", "codex_home")}
+        with registry(self.ledger_with_roots(complete)):
+            pass
+
     def test_start_outside_git_with_no_ended_records(self):
         args = SimpleNamespace(event="SessionStart", host="codex", session="fresh")
         with patch.object(hooks, "scope", side_effect=AssertionError("not needed")):

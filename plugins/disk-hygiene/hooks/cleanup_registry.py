@@ -27,6 +27,19 @@ LOCK_POLL_SECONDS = 0.05
 
 Protected = ProtectedError
 
+# The session roots a registration records (cleanup_intake.roots): the Claude
+# home, the Claude temp directory and the Codex home. A record with another key
+# set cannot answer the durability check and is refused as malformed.
+ROOT_KEYS = frozenset(("claude_home", "claude_tmp", "codex_home"))
+
+
+def valid_roots(roots):
+    return (
+        isinstance(roots, dict)
+        and set(roots) == ROOT_KEYS
+        and all(isinstance(v, str) for v in roots.values())
+    )
+
 
 def validate(state):
     if not isinstance(state, dict):
@@ -47,10 +60,7 @@ def validate(state):
             record.get("identity"), list
         ):
             raise Protected("invalid registered owner or identity")
-        if "roots" in record and not (
-            isinstance(record["roots"], dict)
-            and all(isinstance(v, str) for v in record["roots"].values())
-        ):
+        if "roots" in record and not valid_roots(record["roots"]):
             raise Protected("invalid registered session roots")
         if record["kind"] == "worktree" and not all(
             isinstance(record.get(k), str) for k in ("repo", "branch")

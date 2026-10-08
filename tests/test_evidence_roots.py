@@ -11,6 +11,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "plugins/disk-hygiene/hooks")
+)
+import cleanup_registry
 import test_evidence_durability as durability
 
 h = durability.h
@@ -33,6 +37,8 @@ class OwnerRootsTests(durability.DurabilityFixture):
         self.assertEqual(roots["claude_home"], str(self.root / "claude"))
         self.assertEqual(roots["codex_home"], str(self.root / "codex"))
         self.assertEqual(roots["claude_tmp"], str(self.root / "tmp"))
+        # The ledger refuses any other key set, so the producer must emit this one.
+        self.assertEqual(set(roots), set(cleanup_registry.ROOT_KEYS))
 
     def test_a_file_under_the_host_home_is_refused_from_other_roots(self):
         checkpoint = self.session_file(durability.PURGED[0])
