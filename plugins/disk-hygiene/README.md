@@ -94,7 +94,13 @@ branch is still pending and has no roots stays reported until that branch is
 gone. Such a record of an owner whose session has ended has no session left to
 register it: it stays reported at every SessionStart until its worktree and local
 branch are removed by hand (`git worktree remove`, `git branch -d`), after which
-`dispose` drops the entry.
+`dispose` drops the entry. A temporary directory registered before roots were
+recorded cannot be registered again: `register-worktree` refuses a path that is
+not a linked worktree, and `create-temp` makes a new directory. Its only exit is
+deleting the directory by hand, after which `dispose` drops the entry. On a
+worktree it already owns, `register-worktree --pr` must name the recorded PR
+link or none; another URL is refused, and `link-pr` is the command that changes
+the link.
 
 A record written by an earlier version may name such a file. The same holds for
 evidence that was marked and is no longer usable: the file is gone, was replaced

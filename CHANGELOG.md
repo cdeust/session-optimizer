@@ -29,12 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   roots, the failure this entry fixes: a session checkpoint marked by 0.1.1
   and re-registered was disposed on, although session end removes it.
   Every earlier registration still on disk meets this refusal once the fix is
-  installed (two live worktrees in the author's ledger); one whose owner has
-  ended stays reported until its worktree and branch are removed by hand. The
-  entries of earlier registrations whose directory is already gone (six there)
-  hold nothing to protect and are dropped by `dispose` as described below.
-  The ledger also refuses a record whose `roots` is not a dict of the three
-  recorded roots with string values.
+  installed; a worktree whose owner has ended stays reported until its worktree
+  and branch are removed by hand. A temporary directory registered before
+  roots were recorded cannot be registered again (`register-worktree` refuses
+  a path that is not a linked worktree, and `create-temp` makes a new one):
+  deleting the directory is its only exit, after which `dispose` drops the
+  entry. The entries of earlier registrations whose directory is already gone
+  hold nothing to protect and are dropped by `dispose` as described below (the
+  author's ledger held ten such entries and two live worktrees at review time,
+  and no temporary directory; the count moves with every session). The ledger also
+  refuses a record whose `roots` is not a dict of the three recorded roots
+  with string values. `register-worktree` on a record it already owns refuses
+  a PR URL that differs from the recorded one, naming both and `link-pr`; it
+  accepted the call and kept the recorded link without a word.
 - A worktree whose marked evidence became a dangling symlink, or whose content
   changed, stayed protected for ever once its owner session had ended: only a
   missing file counted as lost evidence, so no later session could mark it
