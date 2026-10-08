@@ -71,7 +71,7 @@ def linked(repo, path):
 
 def claim(state, path, owner, record):
     if path in state:
-        raise Protected("path already registered; ownership cannot be reassigned")
+        return reclaim(state[path], path, owner, record)
     for other in (p for p in state if p != "_ended"):
         if Path(other) in Path(path).parents or Path(path) in Path(other).parents:
             raise Protected("overlapping registered paths")
@@ -79,6 +79,32 @@ def claim(state, path, owner, record):
     # later checks durability against these, not against its own environment.
     record.update(owner=owner, identity=identity(path), roots=cleanup_intake.roots())
     state[path] = record
+
+
+def reclaim(existing, path, owner, record):
+    """Record the roots of a registration written before they were recorded.
+
+    Only the same owner, for the same directory and the same registration
+    (kind, repo, branch), and only while no roots are recorded: the record
+    gains its roots and nothing else changes. Everything else is refused.
+    """
+    if existing["owner"] != owner:
+        raise Protected("path already registered; ownership cannot be reassigned")
+    if "roots" in existing:
+        raise Protected("path already registered with its session roots")
+    if identity(path) != existing["identity"]:
+        raise Protected("registered directory was replaced")
+    if any(existing.get(k) != v for k, v in record.items() if k != "pr"):
+        raise Protected("registration does not match the registered record")
+    existing["roots"] = cleanup_intake.roots()
+
+
+def no_roots(path):
+    return Protected(
+        f"no session roots recorded for {path}: it was registered before roots "
+        "were recorded; register it again from its owning session "
+        "(register-worktree records the roots)"
+    )
 
 
 def validate_pr(pr):
@@ -126,15 +152,16 @@ def admin_entries(state):
     }
 
 
-def owner_roots(record):
+def owner_roots(path, record):
     """The roots the owner registered under; refuse when this process has others.
 
-    A record written before roots were recorded has none: the calling process's
-    roots are taken once and stored with the evidence, the same answer the check
-    gave before, now pinned so that a later call under other roots is refused.
+    A record written before roots were recorded has none and is refused: the
+    calling process's roots are not the owner's by any evidence (issue #55).
     """
+    if "roots" not in record:
+        raise no_roots(path)
     current = cleanup_intake.roots()
-    recorded = record.get("roots", current)
+    recorded = record["roots"]
     differ = sorted(key for key in current if current[key] != recorded.get(key))
     if differ:
         raise Protected(
@@ -157,8 +184,7 @@ def preserve(state, owner, path, evidence):
             "evidence must not be inside the Git admin directory of a registered "
             "worktree: git worktree remove deletes it"
         )
-    roots = owner_roots(record)
-    target = purge_target(evidence, roots)
+    target = purge_target(evidence, owner_roots(path, record))
     if target:
         raise Protected(
             f"evidence must outlive its session: session cleanup removes {target}; "
@@ -167,7 +193,6 @@ def preserve(state, owner, path, evidence):
     data = evidence.read_bytes()
     if not data:
         raise Protected("evidence must be a non-empty durable file")
-    record["roots"] = roots
     record["evidence"] = str(evidence)
     record["evidence_sha256"] = hashlib.sha256(data).hexdigest()
     # A pending branch has no worktree left: its verified head stays the recorded one.
@@ -377,6 +402,8 @@ def dispose_one(state, owner, path, options):
 
     A missing directory is decided before the identity read, which cannot
     succeed for it; only a surviving branch of a removed worktree falls through.
+    A record without session roots is refused before anything on disk is acted
+    on; a vanished one holds nothing, so its entry is dropped like any other.
     """
     record = state.get(path)
     if record and record.get("owner") == owner and not os.path.lexists(path):
@@ -384,6 +411,8 @@ def dispose_one(state, owner, path, options):
         if message is not None:
             return message
     record = owned(state, owner, path)
+    if "roots" not in record:
+        raise no_roots(path)
     if record["kind"] == "temp" and not options["temps"]:
         return None
     return disposal_handler(record)(path, record, options["dry_run"])

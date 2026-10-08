@@ -6,6 +6,7 @@ file under the host's home, which session end removes, was accepted as durable.
 """
 
 import os
+import shutil
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -16,6 +17,7 @@ sys.path.insert(
 )
 import cleanup_registry
 import test_evidence_durability as durability
+from cleanup_registry import Protected
 
 h = durability.h
 SID = durability.SID
@@ -63,13 +65,74 @@ class OwnerRootsTests(durability.DurabilityFixture):
             target = durability.h.purge_target(checkpoint, roots)
         self.assertEqual(Path(target), checkpoint)
 
-    def test_a_record_without_roots_pins_the_calling_process_roots_once(self):
+    def legacy_record(self):
+        """A record written by 0.1.1: registered, evidence marked, no roots."""
         record = self.state[self.path]
         del record["roots"]
+        return dict(record)
+
+    def project_file(self):
         project = self.root / "main-tasks" / "review.md"
         project.parent.mkdir()
         project.write_text("review evidence")
-        h.preserve(self.state, self.owner, self.path, str(project))
+        return project
+
+    def register_again(self, owner=None):
+        h.register_worktree(
+            self.state, owner or self.owner, self.path, {"repo": self.repo, "pr": None}
+        )
+
+    def test_a_record_without_roots_is_refused_at_evidence_preserved(self):
+        before = self.legacy_record()
+        reason = self.refusal(self.project_file())
+        self.assertIn(self.path, reason)
+        self.assertIn("register-worktree", reason)
+        self.assertIn("owning session", reason)
+        self.assertEqual(self.state[self.path], before)
+
+    def test_a_record_without_roots_is_refused_at_dispose(self):
+        before = self.legacy_record()
+        result = self.clean()
+        self.assertIn(self.path, result["protected"])
+        self.assertIn("register-worktree", result["protected"])
+        self.assertTrue(Path(self.path).exists())
+        self.assertEqual(self.state[self.path], before)
+
+    def test_registering_again_records_the_roots_and_nothing_else(self):
+        before = self.legacy_record()
+        self.register_again()
+        record = self.state[self.path]
         self.assertEqual(record["roots"]["claude_home"], str(self.root / "claude"))
-        with self.elsewhere():
-            self.assertIn("roots", self.refusal(project))
+        self.assertEqual({k: v for k, v in record.items() if k != "roots"}, before)
+        self.assertIn("removed worktree", self.clean()["status"])
+
+    def test_registering_again_is_refused_for_another_owner_or_recorded_roots(self):
+        self.legacy_record()
+        with self.assertRaisesRegex(Protected, "cannot be reassigned"):
+            self.register_again("claude:other")
+        self.assertNotIn("roots", self.state[self.path])
+        self.register_again()
+        with self.assertRaisesRegex(Protected, "already registered"):
+            self.register_again()
+
+    def test_a_vanished_record_without_roots_is_still_dropped(self):
+        self.legacy_record()
+        shutil.rmtree(self.path)
+        h.git(self.repo, "worktree", "prune")
+        self.assertIn("local branch", self.clean()["protected"])
+        self.assertIn(self.path, self.state)
+        h.git(self.repo, "branch", "-D", "feature")
+        self.assertIn("dropped ledger entry", self.clean()["status"])
+        self.assertNotIn(self.path, self.state)
+
+    def test_a_pending_branch_without_roots_is_refused_until_it_is_gone(self):
+        self.state[self.path]["pending_branch"] = True
+        self.legacy_record()
+        shutil.rmtree(self.path)
+        h.git(self.repo, "worktree", "prune")
+        result = self.clean()
+        self.assertIn(self.path, result["protected"])
+        self.assertIn("register-worktree", result["protected"])
+        self.assertEqual(h.git(self.repo, "rev-parse", "feature"), self.head)
+        h.git(self.repo, "branch", "-D", "feature")
+        self.assertIn("dropped ledger entry", self.clean()["status"])

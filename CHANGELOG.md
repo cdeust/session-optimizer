@@ -17,8 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads them from the record, and a process running under other roots is
   refused with the differing names. A file under the host's home, which session
   end removes, could be accepted as durable when `CLAUDE_CONFIG_DIR` or
-  `CODEX_HOME` differed from the host's. A path registered before this change
-  records the roots of its first `evidence-preserved` call.
+  `CODEX_HOME` differed from the host's. A path registered before roots were
+  recorded (by the installed 0.1.1 copy) has none and is refused at
+  `evidence-preserved` and at `dispose`, with a message naming the path, until
+  its owning session runs `register-worktree` for it again; on a path it
+  already owns, that command records the roots and changes nothing else.
+  Taking the roots of the first `evidence-preserved` call instead would have
+  judged that call under the caller's roots, the failure this entry fixes.
+  Every earlier registration still on disk meets this refusal once the fix is
+  installed (two live worktrees in the author's ledger); one whose owner has
+  ended stays reported until its worktree and branch are removed by hand. The
+  entries of earlier registrations whose directory is already gone (six there)
+  hold nothing to protect and are dropped by `dispose` as described below.
+  The ledger also refuses a record whose `roots` is not a dict of the three
+  recorded roots with string values.
 - A worktree whose marked evidence became a dangling symlink, or whose content
   changed, stayed protected for ever once its owner session had ended: only a
   missing file counted as lost evidence, so no later session could mark it

@@ -77,8 +77,18 @@ The check answers for the owner's host, not for the process that runs it. The
 Claude home, Claude temp directory and Codex home (`CLAUDE_CONFIG_DIR`,
 `CLAUDE_CODE_TMPDIR`, `CODEX_HOME`) are recorded when the path is registered, and
 `evidence-preserved` refuses to run under other roots, naming the ones that
-differ. A path registered by an earlier version has no recorded roots: the first
-`evidence-preserved` for it records those of the process that runs it.
+differ. A path registered before roots were recorded (the installed 0.1.1 copy)
+has none, and no other process can supply them after the fact:
+`evidence-preserved` and `dispose` refuse it, naming the path, until its owning
+session runs `register-worktree` for it again. On a path it already owns, that
+command records the roots and changes nothing else. A registered path whose
+directory is already gone holds nothing to judge; its ledger entry is dropped as
+described under "What is removed", roots or not. A removed worktree whose local
+branch is still pending and has no roots stays reported until that branch is
+gone. Such a record of an owner whose session has ended has no session left to
+register it: it stays reported at every SessionStart until its worktree and local
+branch are removed by hand (`git worktree remove`, `git branch -d`), after which
+`dispose` drops the entry.
 
 A record written by an earlier version may name such a file. The same holds for
 evidence that was marked and is no longer usable: the file is gone, was replaced
