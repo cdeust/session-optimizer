@@ -202,3 +202,10 @@ without a lifecycle event cannot mark a session as ended. The Claude Code
 SessionEnd hook runs the purge synchronously, so a very large scratch tree may
 be finished at a later event. Codex SessionEnd only records the end (its
 budget is three seconds); the purge happens at the next hook event.
+
+Session process liveness and parent lookup refuse Windows with
+`session process checks are unsupported on Windows; cleanup refused`.
+Signal zero is not a safe existence test there. These checks require POSIX;
+Windows session-file cleanup is refused when either check is needed. A POSIX
+parent lookup also reports command, decoding and malformed-output failures
+explicitly. A readable parent chain with no session host still returns no PID.
