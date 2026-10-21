@@ -203,9 +203,13 @@ SessionEnd hook runs the purge synchronously, so a very large scratch tree may
 be finished at a later event. Codex SessionEnd only records the end (its
 budget is three seconds); the purge happens at the next hook event.
 
-Session process liveness and parent lookup refuse Windows with
-`session process checks are unsupported on Windows; cleanup refused`.
-Signal zero is not a safe existence test there. These checks require POSIX;
-Windows session-file cleanup is refused when either check is needed. A POSIX
-parent lookup also reports command, decoding and malformed-output failures
-explicitly. A readable parent chain with no session host still returns no PID.
+Claude session cleanup refuses Windows with
+`Claude session cleanup requires POSIX (user id, signal zero, ps); unsupported
+on Windows; cleanup refused`. It needs three POSIX facilities: the user id that
+names the Claude temp root, signal zero as a liveness test (not a safe existence
+test on Windows) and `ps` for the parent chain. The refusal comes before any of
+them is used, so a Windows SessionStart or SessionEnd hook reports it instead of
+failing, and the session's end event stays in the intake. Codex cleanup does not
+use these checks. A POSIX parent lookup also reports command, decoding and
+malformed-output failures explicitly. A readable parent chain with no session
+host still returns no PID.

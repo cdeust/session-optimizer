@@ -48,8 +48,27 @@ ENDED_PATTERNS = ("memories/checkpoints/{sid}.md",)
 TEMP_PATTERN = "*/{sid}"
 
 
+def require_posix_session_cleanup() -> None:
+    """Refuse Claude session cleanup where its three POSIX facilities do not exist.
+
+    The temp root is named after the user id (os.getuid, Unix only), liveness is a
+    signal-zero probe (on Windows os.kill terminates the process or sends a console
+    event) and the host is found by walking `ps`. Each caller checks here first, so a
+    Windows host gets this refusal instead of an AttributeError or a signalled process.
+    """
+    # source: https://docs.python.org/3/library/os.html#os.getuid
+    # source: https://docs.python.org/3/library/os.html#os.kill
+    # Issue #62 permits explicit refusal until native process queries exist.
+    if os.name != "posix":
+        raise Protected(
+            "Claude session cleanup requires POSIX (user id, signal zero, ps); "
+            "unsupported on Windows; cleanup refused"
+        )
+
+
 def temp_root(base=None):
     """The host temp root; `base` is a recorded CLAUDE_CODE_TMPDIR, else the process's."""
+    require_posix_session_cleanup()
     base = os.environ.get("CLAUDE_CODE_TMPDIR", "/tmp") if base is None else base
     return Path(base).resolve() / f"claude-{os.getuid()}"
 
@@ -191,16 +210,6 @@ def purge_transcripts(home, sid, guard, options):
     return [remove(p, guard, dry_run) for p in transcripts]
 
 
-def require_posix_process_checks() -> None:
-    # source: https://docs.python.org/3/library/os.html#os.kill
-    # Windows signal zero can deliver a control event or terminate a process.
-    # Issue #62 permits explicit refusal until native process queries exist.
-    if os.name == "nt":
-        raise Protected(
-            "session process checks are unsupported on Windows; cleanup refused"
-        )
-
-
 def parent_command(pid: int) -> tuple[int, str]:
     """Read one POSIX parent row; an unreadable table is an explicit failure."""
     try:
@@ -228,7 +237,7 @@ def parent_command(pid: int) -> tuple[int, str]:
 
 def host_pid(pid: int | None = None) -> int | None:
     """Nearest session host in a readable POSIX parent chain, else None."""
-    require_posix_process_checks()
+    require_posix_session_cleanup()
     pid = pid or os.getppid()
     while pid > 1:
         parent, command = parent_command(pid)
@@ -239,7 +248,7 @@ def host_pid(pid: int | None = None) -> int | None:
 
 
 def alive(pid: int) -> bool:
-    require_posix_process_checks()
+    require_posix_session_cleanup()
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

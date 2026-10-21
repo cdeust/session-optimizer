@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Session process checks now refuse Windows explicitly before probing a PID or
-  walking parents. POSIX parent lookup reports failed commands, diagnostics,
-  malformed output and decoding errors instead of trusting an unreadable table
-  (issue #62).
+- Claude session cleanup now refuses Windows explicitly before naming the temp
+  root from the user id, probing a PID or walking parents; a Windows hook used to
+  stop on an AttributeError for `os.getuid`. POSIX parent lookup reports failed
+  commands, diagnostics, malformed output and decoding errors instead of trusting
+  an unreadable table (issue #62).
 
 ### disk-hygiene 0.1.2
 

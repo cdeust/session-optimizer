@@ -29,8 +29,17 @@ def test_windows_process_checks_refuse_before_any_probe(purgers, monkeypatch, pr
         ),
     )
     monkeypatch.setattr(purge.subprocess, "run", forbid_process_call)
-    with pytest.raises(RuntimeError, match="process checks.*unsupported on Windows"):
+    with pytest.raises(RuntimeError, match="requires POSIX.*unsupported on Windows"):
         getattr(purge, probe)(HOOK_PID)
+
+
+def test_windows_temp_root_refuses_before_reading_a_user_id(purgers, monkeypatch):
+    # source: https://docs.python.org/3/library/os.html#os.getuid (Availability: Unix).
+    # A Windows model has no getuid; the temp root is named after it, so it refuses.
+    purge, _ = purgers
+    monkeypatch.setattr(purge, "os", SimpleNamespace(name="nt", environ={}))
+    with pytest.raises(RuntimeError, match="requires POSIX.*unsupported on Windows"):
+        purge.temp_root()
 
 
 @pytest.mark.parametrize("status", [1, 2])
@@ -176,11 +185,20 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(sys.argv[1]))
 import session_purge as purge
 if os.environ["PROCESS_TEST_MODE"] == "windows":
-    purge.os = SimpleNamespace(**vars(os))
-    purge.os.name = "nt"
+    # A faithful Windows model: os.getuid is Unix-only and a stock host has no ps.
+    # source: https://docs.python.org/3/library/os.html#os.getuid
+    windows = dict(vars(os), name="nt")
+    windows.pop("getuid", None)
+    purge.os = SimpleNamespace(**windows)
     def forbidden(*args, **kwargs):
         raise AssertionError("Windows reached a signal probe")
     purge.os.kill = forbidden
+    original = purge.subprocess.run
+    def no_ps(command, **kwargs):
+        if command[0] in ("ps", "pgrep"):
+            raise FileNotFoundError(2, "No such file or directory", command[0])
+        return original(command, **kwargs)
+    purge.subprocess.run = no_ps
 else:
     original = purge.subprocess.run
     def failing_ps(command, **kwargs):
@@ -240,5 +258,11 @@ def test_hook_reports_refusal_and_retains_pending_state(tmp_path, mode):
     assert expected in output["protected"]
     assert run.stderr == ""
     assert kept.read_text() == "must survive a refused process check"
-    pending = json.loads(state.with_name("ended-sessions.json").read_text())
-    assert SID in pending
+    if mode == "windows":
+        # Refused before the host ledger is written: the end event stays in the intake.
+        intake = state.with_name(state.name + ".ended") / "host"
+        events = [json.loads(p.read_text()) for p in intake.glob("*.json")]
+        assert [e["session"] for e in events] == [SID]
+    else:
+        pending = json.loads(state.with_name("ended-sessions.json").read_text())
+        assert SID in pending
