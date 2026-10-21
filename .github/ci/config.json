@@ -1,0 +1,26 @@
+{
+  "python_version": "3.11",
+  "linux_packages": [
+    "jq"
+  ],
+  "version_source": ".claude-plugin/marketplace.json:metadata.version",
+  "tag_prefix": "v",
+  "schema_version": 1,
+  "source_sha": "c1e7a07fb2288084b66dc7ff63336b7062f4cced",
+  "postgres": false,
+  "runner": "ubuntu-latest",
+  "categories": {
+    "unit": "bash .github/ci/run.sh unit",
+    "regression": "bash .github/ci/run.sh regression",
+    "e2e": "bash .github/ci/run.sh e2e",
+    "environment": "bash .github/ci/run.sh environment",
+    "installation": "bash .github/ci/run.sh installation"
+  },
+  "auxiliary_python_versions": [
+    "3.9"
+  ],
+  "release_workflows": [
+    "release.yml"
+  ],
+  "environment_runners": []
+}

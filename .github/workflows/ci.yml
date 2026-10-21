@@ -1,100 +1,27 @@
 name: CI
-
 on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
-  pull_request:
-
+  workflow_dispatch:
 permissions:
   contents: read
-
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: python -m pip install --require-hashes --no-deps -r requirements-dev.txt
-
-      # #39: belt-and-suspenders between a hand edit and the next dependabot
-      # run. See tools/check-lock-drift.py docstring for the naming this
-      # guards and why dependabot can regenerate requirements-dev.txt itself
-      # now.
-      - name: Verify requirements-dev.txt matches requirements-dev.in
-        run: python tools/check-lock-drift.py requirements-dev.in requirements-dev.txt
-
-      # Pinned rather than taken from apt: the distro build is several releases
-      # behind, and the two versions do not report the same findings — it raises
-      # SC2317 where 0.11.0 raises SC2329, and SC2015 on `A && B || true` which
-      # 0.11.0 no longer flags. An unpinned linter makes a local run greener
-      # than the gate, which is how three findings reached CI unseen.
-      - name: Install shellcheck 0.11.0
-        run: |
-          v=v0.11.0
-          archive="shellcheck-${v}.linux.x86_64.tar.xz"
-          curl -fsSLO "https://github.com/koalaman/shellcheck/releases/download/${v}/${archive}"
-          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  ${archive}" | sha256sum -c -
-          sudo tar -xJf "${archive}" --strip-components=1 -C /usr/local/bin "shellcheck-${v}/shellcheck"
-          shellcheck --version
-
-      - name: Python suite and 80 percent coverage gate
-        run: |
-          coverage erase
-          coverage run -m pytest -q
-          coverage combine
-          coverage report
-          coverage xml
-
-      - name: Enforce Python coding standard
-        run: ruff check plugins tests tools
-
-      - name: Enforce Python formatting
-        run: ruff format --check plugins tests tools
-
-      - name: Statusline heat-track tests
-        run: bash tests/statusline/test_heat_rgb.sh
-
-      - name: Statusline fitting, pace and module tests
-        run: bash tests/statusline/test_fit_and_pace.sh
-
-      - name: Statusline session snapshot tests
-        run: bash tests/statusline/test_session_snapshot.sh
-
-      - name: Shellcheck statusline renderer, modules, ledger and tests
-        run: |
-          shellcheck plugins/statusline/assets/statusline-command.sh
-          shellcheck plugins/statusline/assets/lib/*.sh
-          shellcheck plugins/statusline/assets/costs.sh
-          shellcheck plugins/statusline/install.sh
-          shellcheck tools/*.sh
-          # The suites are shell too, and a checker that skips them lets the
-          # code that guards the renderer rot unwatched.
-          shellcheck tests/statusline/*.sh
-
-      - name: Validate marketplace, plugin, and hook JSON
-        run: |
-          python -m json.tool .claude-plugin/marketplace.json > /dev/null
-          python -m json.tool .claude-plugin/plugin.json > /dev/null
-          python -m json.tool .agents/plugins/marketplace.json > /dev/null
-          python -m json.tool hooks/hooks.json > /dev/null
-          for plugin in context-guard refine-gate statusline disk-hygiene; do
-            python -m json.tool "plugins/$plugin/.claude-plugin/plugin.json" > /dev/null
-            python -m json.tool "plugins/$plugin/hooks/hooks.json" > /dev/null
-          done
-          python -m json.tool plugins/refine-gate/.codex-plugin/plugin.json > /dev/null
-          python -m json.tool plugins/disk-hygiene/.codex-plugin/plugin.json > /dev/null
-          python -m json.tool plugins/disk-hygiene/hooks/codex-hooks.json > /dev/null
-          python -m json.tool plugins/statusline/.codex-plugin/plugin.json > /dev/null
-          python -m json.tool plugins/statusline/hooks/codex-hooks.json > /dev/null
-          python -m json.tool plugins/statusline/assets/statusline-budget.json > /dev/null
-          python -m json.tool plugins/statusline/assets/ctxguard-thresholds.json > /dev/null
-          python -m json.tool plugins/statusline/assets/pricing.json > /dev/null
+  tests:
+    uses: cdeust/Cortex/.github/workflows/shared-tests.yml@4f2e993b026ebb4d2e4de171f51cc422ebf26aef
+    with:
+      engine-ref: 4f2e993b026ebb4d2e4de171f51cc422ebf26aef
+      runners: '["ubuntu-latest"]'
+  release-tag:
+    needs: [tests]
+    if: always() && !cancelled() && needs.tests.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+      actions: write
+    uses: cdeust/Cortex/.github/workflows/shared-release.yml@4f2e993b026ebb4d2e4de171f51cc422ebf26aef
+    with:
+      engine-ref: 4f2e993b026ebb4d2e4de171f51cc422ebf26aef
