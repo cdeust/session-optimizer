@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- The Claude Code workflows are aligned with the documented setup (https://code.claude.com/docs/en/github-actions, "Run a skill" and "Respond to @claude mentions"): the PR review moves to `.github/workflows/claude-review.yml` on `pull_request` only and runs the code-review plugin's skill with `--comment` under read-only `contents`/`pull-requests`/`issues` permissions; `.github/workflows/claude.yml` keeps only the `@claude` job. Neither checks out the PR head ref, which clears CodeQL `actions/untrusted-checkout` (`/high`, `-toctou/high`, `/medium`). The review now comments only: it no longer applies findings or arms auto-merge.
+
 ### Added
 
 - `.github/workflows/claude.yml`: every push to a PR runs a Claude Code review (`/code-review` then `/security-review`, one cycle), applies the findings and arms squash auto-merge; `@claude` in a comment or issue runs Claude on that request. Action pinned by SHA (anthropics/claude-code-action v1.0.256).
