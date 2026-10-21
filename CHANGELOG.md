@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `.github/workflows/claude.yml`: every push to a PR runs a Claude Code review (`/code-review` then `/security-review`, one cycle), applies the findings and arms squash auto-merge; `@claude` in a comment or issue runs Claude on that request. Action pinned by SHA (anthropics/claude-code-action v1.0.256).
 
+### Fixed
+
+- Hooks and tools import again under macOS's `/usr/bin/python3` (3.9.6), which `hooks.json` runs as bare `python3`: `subagent_spend.py` (imported by `stop-context-guard.py`) and `measure_refine_overhead.py` raised `TypeError` on `X | None` annotations; ruff now targets `py39` (`pyproject.toml`) and `tests/test_python39_floor.py` imports every shipped module under a 3.9 interpreter.
+
 ### disk-hygiene 0.1.2
 
 #### Fixed

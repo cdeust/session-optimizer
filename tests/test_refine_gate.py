@@ -18,6 +18,8 @@ per gated prompt vs the ~10⁵-token cost of one mis-bound implementation
 cycle.
 """
 
+from __future__ import annotations
+
 import json
 import subprocess
 import sys
