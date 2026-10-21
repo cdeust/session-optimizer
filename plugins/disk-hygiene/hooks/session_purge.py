@@ -8,6 +8,8 @@ installed) must finish before removal. Protected files are retried at later life
 recreate its tasks directory until its process exits.
 """
 
+from __future__ import annotations
+
 import os
 import re
 import shutil
