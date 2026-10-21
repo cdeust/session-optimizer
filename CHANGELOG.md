@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `.github/workflows/claude.yml`: every push to a PR runs a Claude Code review (`/code-review` then `/security-review`, one cycle), applies the findings and arms squash auto-merge; `@claude` in a comment or issue runs Claude on that request. Action pinned by SHA (anthropics/claude-code-action v1.0.256).
+
 ### disk-hygiene 0.1.2
 
 #### Fixed
