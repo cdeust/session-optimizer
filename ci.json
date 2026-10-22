@@ -1,0 +1,8 @@
+{
+  "unit": "python3 -m pip install --quiet --require-hashes --no-deps -r requirements-dev.txt && python3 -m coverage erase && python3 -m coverage run -m pytest -q && python3 -m coverage combine && python3 -m coverage xml",
+  "regression": "bash tests/statusline/test_heat_rgb.sh && bash tests/statusline/test_fit_and_pace.sh && bash tests/statusline/test_session_snapshot.sh",
+  "e2e": "bash -c 'echo \"e2e: no test exists yet (plan 2026-10-22)\"; exit 1'",
+  "environment": "mkdir -p \"$CI_WORK/home\" && HOME=\"$CI_WORK/home\" bash plugins/statusline/install.sh install && HOME=\"$CI_WORK/home\" bash plugins/statusline/install.sh verify",
+  "install": "claude plugin marketplace add \"${GITHUB_WORKSPACE:-$PWD}\" && for p in context-guard refine-gate statusline; do claude plugin install \"$p@session-optimizer-marketplace\"; done && claude plugin list",
+  "version_file": ".claude-plugin/marketplace.json"
+}
