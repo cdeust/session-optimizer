@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `tests/e2e/run-tests.sh`, the pipeline's `e2e` stage (`ci.json`): installs the statusline into a scratch `HOME` and renders a Claude Code statusLine JSON through the installed copy, then feeds the context-guard Stop hook a Stop payload over transcripts below, at and above the thresholds that install seeded, asserting the silent, checkpoint and soft-cap outcomes the README documents. Replaces the placeholder command that failed by design.
 - `.github/workflows/pipeline.yml` and `ci.json`: the single CI pipeline every repository of the owner runs (contract, unit with a 90 % coverage gate, regression, e2e, environment and install on ubuntu/macOS/Windows with only the pinned Claude Code CLI, the bot's review and fix pass, squash auto-merge, release tag from `marketplace.json`). Design: zetetic-team-subagents `docs/superpowers/specs/2026-10-22-single-ci-design.md`. The existing workflows are untouched in this change.
 - `.github/workflows/claude.yml`: every push to a PR runs a Claude Code review (`/code-review` then `/security-review`, one cycle), applies the findings and arms squash auto-merge; `@claude` in a comment or issue runs Claude on that request. Action pinned by SHA (anthropics/claude-code-action v1.0.256).
 
