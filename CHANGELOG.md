@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `@claude` mention workflow (`.github/workflows/claude.yml`) checks out full history and can run git, gh and the test runners.
 - `.github/workflows/claude.yml`: the @claude mention workflow can run ruff, uv, pipx, coverage, tsc, shellcheck and the Claude CLI.
 - Hooks and tools import again under macOS's `/usr/bin/python3` (3.9.6), which `hooks.json` runs as bare `python3`: `subagent_spend.py` (imported by `stop-context-guard.py`) and `measure_refine_overhead.py` raised `TypeError` on `X | None` annotations; ruff now targets `py39` (`pyproject.toml`) and `tests/test_python39_floor.py` imports every shipped module under a 3.9 interpreter.
+- Claude session cleanup now refuses Windows explicitly before naming the temp
+  root from the user id, probing a PID or walking parents; a Windows hook used to
+  stop on an AttributeError for `os.getuid`. POSIX parent lookup reports failed
+  commands, diagnostics, malformed output and decoding errors instead of trusting
+  an unreadable table (issue #62).
 
 ### disk-hygiene 0.1.2
 

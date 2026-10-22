@@ -8,6 +8,8 @@ installed) must finish before removal. Protected files are retried at later life
 recreate its tasks directory until its process exits.
 """
 
+from __future__ import annotations
+
 import os
 import re
 import shutil
@@ -16,6 +18,7 @@ import time
 from pathlib import Path
 
 import transcript_policy
+from cleanup_registry import Protected
 
 # source: native host UUID session identifiers; disk-hygiene design.
 SESSION_ID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
@@ -47,8 +50,27 @@ ENDED_PATTERNS = ("memories/checkpoints/{sid}.md",)
 TEMP_PATTERN = "*/{sid}"
 
 
+def require_posix_session_cleanup() -> None:
+    """Refuse Claude session cleanup where its three POSIX facilities do not exist.
+
+    The temp root is named after the user id (os.getuid, Unix only), liveness is a
+    signal-zero probe (on Windows os.kill terminates the process or sends a console
+    event) and the host is found by walking `ps`. Each caller checks here first, so a
+    Windows host gets this refusal instead of an AttributeError or a signalled process.
+    """
+    # source: https://docs.python.org/3/library/os.html#os.getuid
+    # source: https://docs.python.org/3/library/os.html#os.kill
+    # Issue #62 permits explicit refusal until native process queries exist.
+    if os.name != "posix":
+        raise Protected(
+            "Claude session cleanup requires POSIX (user id, signal zero, ps); "
+            "unsupported on Windows; cleanup refused"
+        )
+
+
 def temp_root(base=None):
     """The host temp root; `base` is a recorded CLAUDE_CODE_TMPDIR, else the process's."""
+    require_posix_session_cleanup()
     base = os.environ.get("CLAUDE_CODE_TMPDIR", "/tmp") if base is None else base
     return Path(base).resolve() / f"claude-{os.getuid()}"
 
@@ -190,29 +212,45 @@ def purge_transcripts(home, sid, guard, options):
     return [remove(p, guard, dry_run) for p in transcripts]
 
 
-def host_pid(pid=None):
-    """The Claude process up this hook's parent chain; None when not found."""
+def parent_command(pid: int) -> tuple[int, str]:
+    """Read one POSIX parent row; an unreadable table is an explicit failure."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "ppid=,comm=", "-p", str(pid)],
+            text=True,
+            capture_output=True,
+            # source: pre-fix host_pid query bound at origin/main 1cd59f4.
+            timeout=5,
+            check=False,
+        )
+    except UnicodeDecodeError as exc:
+        raise Protected(f"ps could not decode process {pid}: {exc}") from exc
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Protected(f"ps failed for process {pid}: {exc}") from exc
+    if result.returncode or result.stderr.strip():
+        raise Protected(
+            f"ps failed for process {pid} (exit {result.returncode}): {result.stderr.strip()}"
+        )
+    out = result.stdout.split(None, 1)
+    if len(out) < PARENT_COMMAND_FIELDS or not out[0].isdigit():
+        raise Protected(f"ps returned malformed parent output for process {pid}")
+    return int(out[0]), Path(out[1].strip()).name
+
+
+def host_pid(pid: int | None = None) -> int | None:
+    """Nearest session host in a readable POSIX parent chain, else None."""
+    require_posix_session_cleanup()
     pid = pid or os.getppid()
     while pid > 1:
-        try:
-            out = subprocess.run(
-                ["ps", "-o", "ppid=,comm=", "-p", str(pid)],
-                text=True,
-                capture_output=True,
-                timeout=5,
-                check=False,
-            ).stdout.split(None, 1)
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        if len(out) < PARENT_COMMAND_FIELDS or not out[0].isdigit():
-            return None
-        if Path(out[1].strip()).name == "claude":
+        parent, command = parent_command(pid)
+        if command == "claude":
             return pid
-        pid = int(out[0])
+        pid = parent
     return None
 
 
-def alive(pid):
+def alive(pid: int) -> bool:
+    require_posix_session_cleanup()
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
