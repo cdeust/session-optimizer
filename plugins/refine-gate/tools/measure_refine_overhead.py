@@ -21,6 +21,8 @@ implementation cycle costs roughly a full session (10^5 tokens); at
 it prevents one mis-binding per ~80 sessions.
 """
 
+from __future__ import annotations
+
 import json
 import subprocess
 import sys

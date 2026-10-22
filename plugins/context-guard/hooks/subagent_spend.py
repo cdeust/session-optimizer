@@ -8,6 +8,8 @@ the two human-readable fragments the checkpoint message and stub use. No
 opinion about WARN/HARD levels or when to call it.
 """
 
+from __future__ import annotations
+
 import json
 import os
 

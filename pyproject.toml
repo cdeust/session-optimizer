@@ -24,3 +24,12 @@ fail_under = 80
 exclude_also = [
   "if __name__ == .__main__.:",
 ]
+
+[tool.ruff]
+# The hooks run under the host's bare `python3` (plugins/*/hooks/hooks.json),
+# which on macOS is /usr/bin/python3, Python 3.9.6. Without a declared target,
+# ruff 0.17 assumes a newer Python and proposes 3.10/3.11-only rewrites
+# (UP017 datetime.UTC) that would break those hooks; py39 makes it flag the
+# 3.10-only syntax instead (FA102). tests/test_python39_floor.py imports every
+# shipped module under a real 3.9 interpreter.
+target-version = "py39"
