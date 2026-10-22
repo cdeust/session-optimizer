@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The `@claude` mention workflow (`.github/workflows/claude.yml`) checks out full history and can run git, gh and the test runners.
 - Hooks and tools import again under macOS's `/usr/bin/python3` (3.9.6), which `hooks.json` runs as bare `python3`: `subagent_spend.py` (imported by `stop-context-guard.py`) and `measure_refine_overhead.py` raised `TypeError` on `X | None` annotations; ruff now targets `py39` (`pyproject.toml`) and `tests/test_python39_floor.py` imports every shipped module under a 3.9 interpreter.
 
 ### disk-hygiene 0.1.2
