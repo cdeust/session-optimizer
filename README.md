@@ -2,8 +2,6 @@
 
 <p align="center"><img src="assets/banner.svg" alt="session-optimizer — cross-platform prompt refinement with Claude-native session controls" width="100%"/></p>
 
-[![CI](https://github.com/cdeust/session-optimizer/actions/workflows/ci.yml/badge.svg)](https://github.com/cdeust/session-optimizer/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/cdeust/session-optimizer/actions/workflows/codeql.yml/badge.svg)](https://github.com/cdeust/session-optimizer/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/cdeust/session-optimizer/badge)](https://securityscorecards.dev/viewer/?uri=github.com/cdeust/session-optimizer)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/13938/badge)](https://www.bestpractices.dev/projects/13938)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
