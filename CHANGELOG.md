@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The `merge` job of `.github/workflows/pipeline.yml` sets `GH_REPO: ${{ github.repository }}` on its `gh pr merge` step: the job runs without a checkout, so gh could not infer the repository and failed with `fatal: not a git repository` after every stage was green (session-optimizer #65, run 39756969927, 2026-10-22).
+
 ### Added
 
 - `tests/e2e/run-tests.sh`, the pipeline's `e2e` stage (`ci.json`): installs the statusline into a scratch `HOME` and renders a Claude Code statusLine JSON through the installed copy, then feeds the context-guard Stop hook a Stop payload over transcripts below, at and above the thresholds that install seeded, asserting the silent, checkpoint and soft-cap outcomes the README documents. Replaces the placeholder command that failed by design.
