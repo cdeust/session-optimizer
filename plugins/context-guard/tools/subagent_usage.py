@@ -43,9 +43,7 @@ from dataclasses import dataclass, field
 # from the official table, not derived from a multiplier: the cache-read rate
 # is 0.10x input for most models but 0.05x for Opus 5.5 and Sonnet 5.5 and
 # 0.025x for Fable 5.1 and Mythos 5.1, so a shared multiplier misprices them.
-_PRICING_SOURCE = (
-    "https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-07"
-)
+# source: https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-07
 
 
 @dataclass(frozen=True)
@@ -78,7 +76,7 @@ def _version_rx(family_version):
 # (model version, price). Order is irrelevant: each pattern matches one
 # version only. A model absent from this table is unpriced (price_for returns
 # None) rather than priced at a guess.
-# source: _PRICING_SOURCE for every row.
+# source: the pricing page cited above, for every row.
 _PRICE_ROWS = (
     ("fable-5-1", ModelPrice(10.0, 50.0, 12.5, 20.0, 0.25)),
     ("mythos-5-1", ModelPrice(10.0, 50.0, 12.5, 20.0, 0.25)),
