@@ -87,7 +87,7 @@ session's other files under `sessions/` when the session ends.
 | `statusline-command.sh` | Renderer entry point — the composition root, called by Claude Code on every refresh. |
 | `lib/*.sh` | The renderer's modules, one concern per file. Must be installed next to the renderer. |
 | `costs.sh` | Cost ledger CLI over `state/costs.jsonl`, the single source of every dollar figure. |
-| `pricing.json` | Per-model token prices `costs.sh` prices with. |
+| `pricing.json` | Token prices `costs.sh` prices with: one row per model version, each citing the pricing page and the date it was read. A model no row names is unpriced and left out of the cost, never priced at a guess. |
 | `transcript.py` | Per-session telemetry (tok/s, compactions, response age, last_ts): reverse-tail + incremental scan, short cache (15 s, in the background). |
 | `statusline-budget.json` | **Personal** config: cache TTL, display size. |
 | `ctxguard-thresholds.json` | Per-model context thresholds — **shared** with the context-guard plugin (see below). |

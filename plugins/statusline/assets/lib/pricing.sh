@@ -20,22 +20,20 @@ _PRICING="${STATUSLINE_PRICING_FILE:-${_COSTS_HOME}/pricing.json}"
 if [[ ! -f "$_PRICING" ]]; then
   echo "costs.sh: pricing.json not found (looked next to script and in ${STATUSLINE_DIR})" >&2; exit 1
 fi
-_today=$(date +%Y-%m-%d)
-_MODELS=$(jq -c --arg today "$_today" '
-  .sonnet5_intro_until as $cut
-  | .models
-  | map( if .intro then (. + (if $today < $cut then .intro else .list end) | del(.intro,.list)) else . end )
-  | map({match, ind, out, cw5, cw1, cr})' "$_PRICING")
+_MODELS=$(jq -c '.models | map({match, ind, out, cw5, cw1, cr})' "$_PRICING")
 
 # Price a stream of Claude Code transcript lines (passed on stdin) from token
-# usage. Standard-tier $/Mtok by model family, resolved from the injected
+# usage. Standard-tier $/Mtok per model version, resolved from the injected
 # $models array (see pricing.json); cache writes split 5m/1h when the
 # breakdown is present, with any unattributed cache-creation priced at the 5m rate.
+# A turn whose model no row names is unpriced and left out of the sum: there is
+# no generic fallback row, because a guessed rate is a wrong figure shown as a
+# right one (session-optimizer #63).
 # shellcheck disable=SC2016  # jq program: $models/$ml are jq variables, not shell.
 _COST_JQ='
 def rates(m):
   (m // "" | ascii_downcase) as $ml
-  | ($models | map(select(.match as $rx | $rx == "" or ($ml | test($rx)))) | first);
+  | ($models | map(select(.match as $rx | $ml | test($rx))) | first);
 # Dedupe by message id BEFORE summing. Claude Code writes each API response to the
 # transcript multiple times (streaming / tool-continuation re-logging), so summing
 # every assistant line over-counts a response 2-3x. Key on message.id:requestId
@@ -52,6 +50,7 @@ def rates(m):
 | unique_by(.dk)
 | [ .[]
   | .u as $u | rates(.m) as $r
+  | select($r != null)
   | ( ($u.input_tokens // 0)  * $r.ind
     + ($u.output_tokens // 0) * $r.out
     + (($u.cache_creation.ephemeral_5m_input_tokens // 0) * $r.cw5)
@@ -66,18 +65,18 @@ def rates(m):
 
 # Test seam: price EACH line of a transcript-shaped file independently (no
 # .type=="assistant" filter, no message.id dedupe), using the same rates(m)
-# lookup and the same per-line cost formula as _COST_JQ above. Used by the
-# pricing-parity test to prove pricing.json produces byte-identical numbers
-# to the pre-refactor hardcoded rates, one cost per input line.
+# lookup and the same per-line cost formula as _COST_JQ above, one cost per
+# input line, or the string "unpriced" for a line whose model no row names.
+# Used by tests/test_statusline_pricing.py to pin each model's rates.
 # shellcheck disable=SC2016  # jq program: $models/$ml are jq variables, not shell.
 _SAMPLE_JQ='
 def rates(m):
   (m // "" | ascii_downcase) as $ml
-  | ($models | map(select(.match as $rx | $rx == "" or ($ml | test($rx)))) | first);
+  | ($models | map(select(.match as $rx | $ml | test($rx))) | first);
 [ inputs | (fromjson? // empty) | objects ]
 | .[]
 | .message.model as $m | .message.usage as $u | rates($m) as $r
-| ( ($u.input_tokens // 0)  * $r.ind
+| if $r == null then "unpriced" else ( ($u.input_tokens // 0)  * $r.ind
   + ($u.output_tokens // 0) * $r.out
   + (($u.cache_creation.ephemeral_5m_input_tokens // 0) * $r.cw5)
   + (($u.cache_creation.ephemeral_1h_input_tokens // 0) * $r.cw1)
@@ -85,7 +84,7 @@ def rates(m):
           - (($u.cache_creation.ephemeral_5m_input_tokens // 0)
             +($u.cache_creation.ephemeral_1h_input_tokens // 0)), 0 ] | max ) * $r.cw5 )
   + ($u.cache_read_input_tokens // 0) * $r.cr
-  ) / 1000000
+  ) / 1000000 end
 '
 
 cmd_price_sample() {

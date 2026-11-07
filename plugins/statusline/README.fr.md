@@ -90,7 +90,7 @@ la session.
 | `statusline-command.sh` | Point d'entrée du rendu — la racine de composition, appelée par Claude Code à chaque refresh. |
 | `lib/*.sh` | Les modules du moteur de rendu, un sujet par fichier. À installer à côté du moteur. |
 | `costs.sh` | CLI du registre de coûts sur `state/costs.jsonl`, source unique de chaque montant. |
-| `pricing.json` | Prix par modèle utilisés par `costs.sh`. |
+| `pricing.json` | Prix des tokens utilisés par `costs.sh` : une ligne par version de modèle, avec la page de tarifs et la date de lecture. Un modèle qu'aucune ligne ne nomme n'est pas tarifé et reste hors du coût, jamais tarifé au jugé. |
 | `transcript.py` | Télémétrie par session (tok/s, compactions, âge réponse, last_ts) : reverse-tail + scan incrémental, cache court (15 s, en arrière-plan). |
 | `statusline-budget.json` | Config **personnelle** : TTL cache, taille d'affichage. |
 | `ctxguard-thresholds.json` | Seuils de contexte par modèle — **partagés** avec le plugin context-guard (voir plus bas). |
