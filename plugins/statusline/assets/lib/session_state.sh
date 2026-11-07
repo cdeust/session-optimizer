@@ -50,10 +50,11 @@ COST_LOG="${STATUSLINE_COST_LOG:-${STATUSLINE_STATE_DIR}/costs.jsonl}"
 # post: sets cost_session cost_today cost_month cost_avg_day, each either a
 #       numeric string or empty. Any non-numeric result (jq failure, empty
 #       ledger) is normalised to empty, which renders as an absent segment
-#       rather than as a wrong number.
+#       rather than as a wrong number. Also sets cost_unpriced: the session
+#       row's unpriced_turns when it is a positive integer, else empty.
 read_cost_ledger() {
   local session_id="$1" payload="$2" _v
-  cost_session=""; cost_today=""; cost_month=""; cost_avg_day=""
+  cost_session=""; cost_today=""; cost_month=""; cost_avg_day=""; cost_unpriced=""
   if [ -x "$COST_LEDGER_SH" ] && [ -n "$session_id" ]; then
     printf '%s' "$payload" | "$COST_LEDGER_SH" update 2>/dev/null || true
     cost_today=$("$COST_LEDGER_SH" today 2>/dev/null) || true
@@ -62,8 +63,10 @@ read_cost_ledger() {
     # cannot give. Read back rather than recomputed — one grep, no second
     # pricing pass.
     if [ -r "$COST_LOG" ]; then
-      cost_session=$(grep -F "\"session_id\":\"${session_id}\"" "$COST_LOG" 2>/dev/null \
-        | tail -1 | jq -r '.cost_usd // empty' 2>/dev/null) || true
+      read -r cost_session cost_unpriced < <(
+        grep -F "\"session_id\":\"${session_id}\"" "$COST_LOG" 2>/dev/null \
+          | tail -1 | jq -r '"\(.cost_usd // "") \(.unpriced_turns // 0)"' 2>/dev/null
+      ) || true
     fi
   fi
   # Numeric guard. Indirect read (${!v}) + printf -v write, never eval: the loop
@@ -72,6 +75,7 @@ read_cost_ledger() {
   for _v in cost_session cost_today cost_month cost_avg_day; do
     case "${!_v}" in ''|*[!0-9.]*) printf -v "$_v" '%s' '' ;; esac
   done
+  case "$cost_unpriced" in ''|0|*[!0-9]*) cost_unpriced="" ;; esac
 }
 
 # --- Per-session transcript telemetry (tok/s, compactions, last-response age,

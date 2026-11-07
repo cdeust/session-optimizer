@@ -28,7 +28,13 @@
 # STATUSLINE_COUNT_SUBAGENTS=0.
 #
 # Schema (one JSON object per line):
-#   {session_id, date, cost_at_day_start, cost_usd, month, month_day_start}
+#   {session_id, date, cost_at_day_start, cost_usd, month, month_day_start,
+#    unpriced_turns}
+#
+# unpriced_turns: deduplicated turns of this session (main + subagents) that
+#   carried tokens on a model no row of pricing.json names. They are left out of
+#   cost_usd, so a non-zero count marks cost_usd as a lower bound (#63). Absent
+#   on rows written before the field existed; readers take that as 0.
 #
 # today  = sum(cost_usd - cost_at_day_start)   where date=today
 # month  = sum(cost_usd - month_day_start)      where month=current
@@ -182,15 +188,19 @@ _weekdays_elapsed() {
 # One row per session, upserted. The helpers below read and set the caller's
 # locals (bash scopes dynamically): needs_write, day_start, month_day_start.
 
-# _session_cost <transcript>: main + subagent spend, "%.6f", from the session's
-# own transcript (see the header: total_cost_usd would double-count a resume).
+# _session_cost <transcript>: main + subagent spend, "%.6f", then the number of
+# turns left unpriced (no row of pricing.json names their model), from the
+# session's own transcript (see the header: total_cost_usd would double-count a
+# resume). Echoes "<cost> <unpriced>".
 _session_cost() {
-    local transcript="$1" main_cost sub_cost=0
-    main_cost=$(_main_cost "$transcript")
+    local transcript="$1" main_cost main_unpriced sub_cost=0 sub_unpriced=0
+    read -r main_cost main_unpriced < <(_main_cost "$transcript") || true
     if [[ "${STATUSLINE_COUNT_SUBAGENTS:-1}" != "0" && -n "$transcript" ]]; then
-        sub_cost=$(_subagent_cost "$transcript")
+        read -r sub_cost sub_unpriced < <(_subagent_cost "$transcript") || true
     fi
-    awk -v a="$main_cost" -v b="$sub_cost" 'BEGIN{printf "%.6f", a+b}'
+    awk -v a="${main_cost:-0}" -v b="${sub_cost:-0}" \
+        -v ua="${main_unpriced:-0}" -v ub="${sub_unpriced:-0}" \
+        'BEGIN{printf "%.6f %d", a+b, ua+ub}'
 }
 
 # _baseline_new_session <duration_ms> <session_cost>: a session never seen (or
@@ -273,7 +283,8 @@ _write_ledger_row() {
             --argjson cur   "$session_cost"     \
             --arg     mon   "$month"            \
             --argjson mds   "$month_day_start"  \
-            '{session_id:$sid,date:$date,cost_at_day_start:$start,cost_usd:$cur,month:$mon,month_day_start:$mds}'
+            --argjson unp   "$unpriced"         \
+            '{session_id:$sid,date:$date,cost_at_day_start:$start,cost_usd:$cur,month:$mon,month_day_start:$mds,unpriced_turns:$unp}'
     } > "$tmp" 2>/dev/null && mv "$tmp" "$COST_LOG"
 }
 
@@ -289,8 +300,14 @@ cmd_update() {
             2>/dev/null)
     [[ -z "$session_id" ]] && return 0
 
-    local session_cost; session_cost=$(_session_cost "$transcript_path")
-    [[ -z "$session_cost" || "$session_cost" == "0.000000" ]] && return 0
+    local session_cost unpriced
+    read -r session_cost unpriced < <(_session_cost "$transcript_path") || true
+    [[ -n "$session_cost" ]] || return 0
+    [[ "${unpriced:-}" =~ ^[0-9]+$ ]] || unpriced=0
+    # Nothing to record only when nothing was spent AND nothing was left
+    # unpriced: a session entirely on an unpriced model costs "$0" by this
+    # ledger, and its row is what carries the "+N unpriced" warning.
+    [[ "$session_cost" == "0.000000" && "$unpriced" == "0" ]] && return 0
 
     local today month cutoff
     today="${STATUSLINE_TODAY_OVERRIDE:-$(date +%Y-%m-%d)}"
@@ -313,6 +330,11 @@ cmd_update() {
         _baseline_new_session "$duration_ms" "$session_cost"
     else
         _baseline_from_prior "$prior" "$session_cost" "$today" "$month"
+        # An unpriced turn adds no dollars, so the cost alone cannot tell the
+        # row is stale: rewrite it when the unpriced count moved too.
+        if [[ "$(printf '%s' "$prior" | jq -r '.unpriced_turns // 0')" != "$unpriced" ]]; then
+            needs_write=true
+        fi
     fi
     $needs_write && _write_ledger_row
 
@@ -369,7 +391,7 @@ Usage:
   costs.sh debug               # full diagnostics + ccusage cross-check
   costs.sh init                # seed from ccusage (one-time, backs up existing log)
 
-Schema: {session_id, date, cost_at_day_start, cost_usd, month, month_day_start}
+Schema: {session_id, date, cost_at_day_start, cost_usd, month, month_day_start, unpriced_turns}
   month total = sum(cost_usd - month_day_start) — derived, never accumulated
 
 Env:

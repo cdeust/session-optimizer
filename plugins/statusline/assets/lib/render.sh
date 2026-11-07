@@ -98,7 +98,7 @@ render_git() {
 # render_session — context bar, tokens, cost, duration, rate limits, churn,
 # subagents. One helper per segment; this function only joins what they print,
 # separated by SEP, skipping the empty ones.
-# reads: used_pct in_tokens CTX_W RANK SAVE_TOKENS cost_session cost dur_ms
+# reads: used_pct in_tokens CTX_W RANK SAVE_TOKENS cost_session cost_unpriced cost dur_ms
 #        rl_5h rl_7d rl_5h_at rl_7d_at now_epoch adds dels sub_count sub_tokens
 render_session() {
   local line seg
@@ -135,12 +135,18 @@ _session_context() {
 # .cost.total_cost_usd, which counts the main thread only and additionally
 # carries prior spend forward on a resumed session. Falls back to the harness
 # figure, labelled "main" so an understated number is never shown as the total.
+# For the same reason, a ledger row with unpriced turns (a model pricing.json
+# does not name, left out of the sum) is followed by "+N unpriced": the dollar
+# figure is then a lower bound, and says so (session-optimizer #63).
 _session_spend() {
   local cost_fmt
   [ "$RANK" -ge 1 ] || return 0
   if [ -n "$cost_session" ]; then
     cost_fmt=$(LC_ALL=C awk -v v="${cost_session/,/.}" 'BEGIN{printf "%.2f", v+0}')
     printf '%s' "${KEY}session ${SUBTEXT}${DOLLAR}${cost_fmt}${RESET}"
+    if [ -n "${cost_unpriced:-}" ]; then
+      printf '%s' " ${YELLOW}+${cost_unpriced} unpriced${RESET}"
+    fi
   elif [ -n "$cost" ]; then
     cost_fmt=$(LC_ALL=C awk -v v="${cost/,/.}" 'BEGIN{printf "%.2f", v+0}')
     printf '%s' "${KEY}session main ${SUBTEXT}${DOLLAR}${cost_fmt}${RESET}"

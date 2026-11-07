@@ -7,6 +7,7 @@ figure the statusline actually computes. session-optimizer #63.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -195,3 +196,186 @@ def test_session_cost_leaves_unpriced_turns_out_of_the_sum(tmp_path):
     # Opus 5.5 only: 1 MTok in at $4 + 1 MTok out at $20. The Haiku 5.5 turn
     # adds nothing instead of being priced at a generic $3 / $15 row.
     assert [r["cost_usd"] for r in rows] == [pytest.approx(24.0)]
+    # ...and is counted, so the figure can be shown as a lower bound.
+    assert [r["unpriced_turns"] for r in rows] == [1]
+
+
+# ── Unpriced turns are counted and shown (session-optimizer #63, third slice) ──
+
+OPUS_TURN = {
+    "type": "assistant",
+    "requestId": "r1",
+    "message": {
+        "id": "m1",
+        "model": "claude-opus-5-5",
+        "usage": {"input_tokens": MTOK, "output_tokens": MTOK},
+    },
+}
+HAIKU_TURN = {
+    "type": "assistant",
+    "requestId": "r2",
+    "message": {
+        "id": "m2",
+        "model": "claude-haiku-5-5",
+        "usage": {"input_tokens": MTOK, "output_tokens": MTOK},
+    },
+}
+# Claude Code writes zero-usage "<synthetic>" assistant messages; no row names
+# the model, but they cost nothing and must not raise the unpriced marker.
+SYNTHETIC_TURN = {
+    "type": "assistant",
+    "requestId": "r3",
+    "message": {
+        "id": "m3",
+        "model": "<synthetic>",
+        "usage": {"input_tokens": 0, "output_tokens": 0},
+    },
+}
+
+
+def _write_transcript(path, turns):
+    path.write_text("".join(json.dumps(t) + "\n" for t in turns))
+
+
+def _payload(transcript, session="s1"):
+    return json.dumps(
+        {
+            "session_id": session,
+            "transcript_path": str(transcript),
+            "cost": {"total_duration_ms": 1000},
+        }
+    )
+
+
+def _update(tmp_path, transcript, extra_env=None):
+    env = _env(tmp_path)
+    env.update(extra_env or {})
+    result = subprocess.run(
+        ["bash", str(COSTS), "update"],
+        input=_payload(transcript),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return [
+        json.loads(line)
+        for line in (tmp_path / "state" / "costs.jsonl").read_text().splitlines()
+    ]
+
+
+def test_a_fully_priced_session_has_no_unpriced_turns(tmp_path):
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [OPUS_TURN, SYNTHETIC_TURN])
+    rows = _update(tmp_path, transcript)
+    assert [(r["cost_usd"], r["unpriced_turns"]) for r in rows] == [
+        (pytest.approx(24.0), 0)
+    ]
+
+
+def test_a_session_with_only_unpriced_turns_still_gets_a_row(tmp_path):
+    # Priced cost is zero, but the row must exist to carry the warning.
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [HAIKU_TURN])
+    rows = _update(tmp_path, transcript)
+    assert [(r["cost_usd"], r["unpriced_turns"]) for r in rows] == [(0, 1)]
+    assert "session $0.00 +1 unpriced" in _render(tmp_path, transcript)
+
+
+def test_a_session_with_nothing_spent_and_nothing_unpriced_writes_no_row(tmp_path):
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [SYNTHETIC_TURN])
+    env = _env(tmp_path)
+    result = subprocess.run(
+        ["bash", str(COSTS), "update"],
+        input=_payload(transcript),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "state" / "costs.jsonl").exists()
+
+
+def test_a_repeated_unpriced_response_is_counted_once(tmp_path):
+    # The same API response re-logged (streaming) is one turn, as for pricing.
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [OPUS_TURN, HAIKU_TURN, HAIKU_TURN, HAIKU_TURN])
+    rows = _update(tmp_path, transcript)
+    assert [r["unpriced_turns"] for r in rows] == [1]
+
+
+def test_unpriced_subagent_turns_are_counted_with_the_main_thread(tmp_path):
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [OPUS_TURN, HAIKU_TURN])
+    sub = tmp_path / "s1" / "subagents"
+    sub.mkdir(parents=True)
+    other = dict(HAIKU_TURN, requestId="r9", message=dict(HAIKU_TURN["message"], id="m9"))
+    _write_transcript(sub / "agent-1.jsonl", [other])
+    rows = _update(tmp_path, transcript)
+    assert [r["unpriced_turns"] for r in rows] == [2]
+
+
+def test_a_new_unpriced_turn_rewrites_a_row_whose_cost_did_not_move(tmp_path):
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [OPUS_TURN])
+    no_throttle = {
+        "STATUSLINE_MAIN_REFRESH_SEC": "0",
+        "STATUSLINE_SUBAGENT_REFRESH_SEC": "0",
+    }
+    assert [r["unpriced_turns"] for r in _update(tmp_path, transcript, no_throttle)] == [0]
+    _write_transcript(transcript, [OPUS_TURN, HAIKU_TURN])
+    # Force a new mtime key: transcripts are re-priced on an mtime change.
+    stat = transcript.stat()
+    os.utime(transcript, (stat.st_atime, stat.st_mtime + 5))
+    rows = _update(tmp_path, transcript, no_throttle)
+    assert [(r["cost_usd"], r["unpriced_turns"]) for r in rows] == [
+        (pytest.approx(24.0), 1)
+    ]
+
+
+def test_a_cache_line_without_the_unpriced_field_is_repriced(tmp_path):
+    # A cache written before the field existed holds "<mtime> <cost> <at>"; it
+    # does not prove zero unpriced turns, so it must not be reused as such.
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [OPUS_TURN, HAIKU_TURN])
+    mtime = int(transcript.stat().st_mtime)
+    sessions = tmp_path / "state" / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "s1.main").write_text(f"{mtime} 24.000000 {mtime}\n")
+    rows = _update(tmp_path, transcript)
+    assert [r["unpriced_turns"] for r in rows] == [1]
+    assert (sessions / "s1.main").read_text().split()[3] == "1"
+
+
+def _render(tmp_path, transcript):
+    env = _env(tmp_path)
+    status = json.loads(_payload(transcript))
+    status["model"] = {"display_name": "Opus"}
+    status["workspace"] = {"current_dir": str(tmp_path)}
+    result = subprocess.run(
+        ["bash", str(ASSETS / "statusline-command.sh")],
+        input=json.dumps(status),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+
+
+def test_the_statusline_marks_a_session_cost_with_unpriced_turns(tmp_path):
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [OPUS_TURN, HAIKU_TURN])
+    assert "session $24.00 +1 unpriced" in _render(tmp_path, transcript)
+
+
+def test_the_statusline_shows_no_marker_when_every_turn_is_priced(tmp_path):
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [OPUS_TURN, SYNTHETIC_TURN])
+    out = _render(tmp_path, transcript)
+    assert "session $24.00" in out
+    assert "unpriced" not in out
