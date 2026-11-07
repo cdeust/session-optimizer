@@ -302,8 +302,12 @@ cmd_update() {
 
     local session_cost unpriced
     read -r session_cost unpriced < <(_session_cost "$transcript_path") || true
-    [[ -z "$session_cost" || "$session_cost" == "0.000000" ]] && return 0
+    [[ -n "$session_cost" ]] || return 0
     [[ "${unpriced:-}" =~ ^[0-9]+$ ]] || unpriced=0
+    # Nothing to record only when nothing was spent AND nothing was left
+    # unpriced: a session entirely on an unpriced model costs "$0" by this
+    # ledger, and its row is what carries the "+N unpriced" warning.
+    [[ "$session_cost" == "0.000000" && "$unpriced" == "0" ]] && return 0
 
     local today month cutoff
     today="${STATUSLINE_TODAY_OVERRIDE:-$(date +%Y-%m-%d)}"

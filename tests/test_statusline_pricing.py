@@ -274,6 +274,31 @@ def test_a_fully_priced_session_has_no_unpriced_turns(tmp_path):
     ]
 
 
+def test_a_session_with_only_unpriced_turns_still_gets_a_row(tmp_path):
+    # Priced cost is zero, but the row must exist to carry the warning.
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [HAIKU_TURN])
+    rows = _update(tmp_path, transcript)
+    assert [(r["cost_usd"], r["unpriced_turns"]) for r in rows] == [(0, 1)]
+    assert "session $0.00 +1 unpriced" in _render(tmp_path, transcript)
+
+
+def test_a_session_with_nothing_spent_and_nothing_unpriced_writes_no_row(tmp_path):
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [SYNTHETIC_TURN])
+    env = _env(tmp_path)
+    result = subprocess.run(
+        ["bash", str(COSTS), "update"],
+        input=_payload(transcript),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "state" / "costs.jsonl").exists()
+
+
 def test_a_repeated_unpriced_response_is_counted_once(tmp_path):
     # The same API response re-logged (streaming) is one turn, as for pricing.
     transcript = tmp_path / "s1.jsonl"
