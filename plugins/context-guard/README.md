@@ -220,10 +220,14 @@ Claude aggregate files remain readable.
 
 ### Pricing (sourced)
 
-Token cost uses Anthropic's published per-MTok rates and cache multipliers
-(Opus 4.8 $5/$25, Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5, Fable 5 $10/$50; cache
-write 1.25× input at 5m / 2× at 1h, cache read 0.1×). Every constant cites its
-source at the use site in `tools/subagent_usage.py`.
+Token cost uses Anthropic's published per-MTok rates, one row per model
+version with all five rates (input, output, 5-minute and 1-hour cache write,
+cache read) read from the official pricing page, so Opus 5.5 ($4/$20, cache
+read $0.20) is not priced as Opus 5 ($5/$25) and Fable 5.1 (cache read $0.25)
+not as Fable 5 ($1). A model the table does not name, including Haiku 5.5
+whose rates depend on prompt size, is reported as unpriced (`cost_usd: null`,
+"cost unavailable") instead of priced at a guess. The table and its source
+line are in `tools/subagent_usage.py`.
 
 ### Retrospective report
 

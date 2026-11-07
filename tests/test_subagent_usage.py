@@ -33,20 +33,78 @@ def _assistant(msg_id, model, usage, tool_uses=0):
     }
 
 
-def test_price_for_matches_by_substring():
-    assert su.price_for("claude-opus-4-8").input_per_mtok == 5.0
-    assert su.price_for("claude-sonnet-4-6").output_per_mtok == 15.0
-    assert su.price_for("claude-haiku-4-5").input_per_mtok == 1.0
-    assert su.price_for("claude-fable-5").output_per_mtok == 50.0
+# Rates read from https://platform.claude.com/docs/en/about-claude/pricing on
+# 2026-11-07: (input, output, 5m write, 1h write, cache read) per MTok.
+@pytest.mark.parametrize(
+    "model_id, rates",
+    [
+        ("claude-fable-5-1", (10.0, 50.0, 12.5, 20.0, 0.25)),
+        ("claude-opus-5-5", (4.0, 20.0, 5.0, 8.0, 0.20)),
+        ("claude-sonnet-5-5", (2.0, 10.0, 2.5, 4.0, 0.10)),
+        ("claude-haiku-4-5", (1.0, 5.0, 1.25, 2.0, 0.10)),
+        ("claude-mythos-5-1", (10.0, 50.0, 12.5, 20.0, 0.25)),
+        ("claude-fable-5", (10.0, 50.0, 12.5, 20.0, 1.0)),
+        ("claude-opus-5", (5.0, 25.0, 6.25, 10.0, 0.50)),
+        ("claude-opus-4-8", (5.0, 25.0, 6.25, 10.0, 0.50)),
+        ("claude-opus-4-1", (15.0, 75.0, 18.75, 30.0, 1.50)),
+        ("claude-opus-4", (15.0, 75.0, 18.75, 30.0, 1.50)),
+        ("claude-sonnet-5", (2.0, 10.0, 2.5, 4.0, 0.20)),
+        ("claude-sonnet-4-6", (3.0, 15.0, 3.75, 6.0, 0.30)),
+    ],
+)
+def test_price_for_each_model_version(model_id, rates):
+    p = su.price_for(model_id)
+    assert (
+        p.input_per_mtok,
+        p.output_per_mtok,
+        p.cache_write_5m_per_mtok,
+        p.cache_write_1h_per_mtok,
+        p.cache_read_per_mtok,
+    ) == rates
 
 
-def test_price_for_unknown_falls_back_to_opus_tier():
-    assert su.price_for("totally-unknown").input_per_mtok == 5.0
-    assert su.price_for(None).input_per_mtok == 5.0
+def test_price_for_tells_a_version_from_its_successor():
+    # The family-substring table priced claude-opus-5-5 as Opus 5 (#63).
+    assert su.price_for("claude-opus-5-5").input_per_mtok == 4.0
+    assert su.price_for("claude-opus-5").input_per_mtok == 5.0
+    assert su.price_for("claude-fable-5-1").cache_read_per_mtok == 0.25
+    assert su.price_for("claude-fable-5").cache_read_per_mtok == 1.0
+
+
+def test_price_for_accepts_snapshot_date_and_context_suffix():
+    assert su.price_for("claude-haiku-4-5-20251001").input_per_mtok == 1.0
+    assert su.price_for("claude-opus-5-5[1m]").input_per_mtok == 4.0
+    assert su.price_for("claude-opus-4-20250514").input_per_mtok == 15.0
+    assert su.price_for("CLAUDE-OPUS-5-5").input_per_mtok == 4.0
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "totally-unknown",
+        None,
+        "",
+        "opus",
+        "claude-opus-6",
+        "claude-opus-4-80",
+        "claude-haiku-5-5",  # rates depend on prompt size: not one figure
+    ],
+)
+def test_price_for_unknown_model_is_unpriced(model_id):
+    assert su.price_for(model_id) is None
+
+
+def test_cost_of_an_unpriced_model_is_none_not_a_guess():
+    u = su.Usage(input_tokens=1_000, output_tokens=10, model="claude-opus-6")
+    assert su.cost_usd(u) is None
+
+
+def test_cost_of_nothing_billed_is_zero_whatever_the_model():
+    assert su.cost_usd(su.Usage(model="claude-opus-6")) == 0.0
 
 
 def test_cost_applies_cache_tier_multipliers():
-    # 1M input, 1M output, 1M 5m-write, 1M 1h-write, 1M read on Opus ($5/$25).
+    # 1M of each token kind on Opus 4.8: 5 + 25 + 6.25 + 10 + 0.50 = 46.75
     u = su.Usage(
         input_tokens=1_000_000,
         output_tokens=1_000_000,
@@ -55,8 +113,20 @@ def test_cost_applies_cache_tier_multipliers():
         cache_read=1_000_000,
         model="claude-opus-4-8",
     )
-    # 5 + 25 + 5*1.25 + 5*2.0 + 5*0.10 = 46.75
     assert abs(su.cost_usd(u) - 46.75) < 1e-9
+
+
+def test_cost_uses_the_published_cache_read_rate_not_a_multiplier():
+    # Opus 5.5: 4 + 20 + 5 + 8 + 0.20 = 37.20 (a 0.1x read multiplier gave 0.40).
+    u = su.Usage(
+        input_tokens=1_000_000,
+        output_tokens=1_000_000,
+        cache_write_5m=1_000_000,
+        cache_write_1h=1_000_000,
+        cache_read=1_000_000,
+        model="claude-opus-5-5",
+    )
+    assert abs(su.cost_usd(u) - 37.20) < 1e-9
 
 
 def test_parse_dedups_relogged_message_by_id(tmp_path):
@@ -296,6 +366,7 @@ def test_build_report_groups_records(monkeypatch):
     monkeypatch.setattr(su, "subagent_record", lambda _path: rec)
     report = su.build_report("/cwd")
     assert report["subagent_count"] == 2
+    assert report["totals"]["cost_usd"] == round(2 * rec.cost_usd, 4)
     assert report["by_agent_type"]["Explore"]["count"] == 2
     assert report["totals"]["usage"]["input_tokens"] == 200
 
@@ -336,3 +407,24 @@ def test_print_table_and_cli_modes(monkeypatch, capsys, tmp_path):
     assert '"subagent_count": 1' in capsys.readouterr().out
     assert su.main([str(tmp_path)]) == 0
     assert "TOTAL" in capsys.readouterr().out
+
+
+def test_build_report_marks_a_total_with_an_unpriced_run_as_unpriced(
+    monkeypatch, capsys
+):
+    priced = su.Usage(input_tokens=1_000_000, model="claude-opus-5-5")
+    unpriced = su.Usage(input_tokens=1_000_000, model="claude-opus-6")
+    recs = {
+        "/a": su.SubagentRecord("a", "Explore", "", "", priced, 4.0, "/a"),
+        "/b": su.SubagentRecord("b", "Plan", "", "", unpriced, None, "/b"),
+    }
+    monkeypatch.setattr(su, "_iter_session_dirs", lambda _p: ["/s"])
+    monkeypatch.setattr(su, "discover_subagents", lambda _s: ["/a", "/b"])
+    monkeypatch.setattr(su, "subagent_record", lambda path: recs[path])
+    report = su.build_report("/cwd")
+    assert report["by_agent_type"]["Explore"]["cost_usd"] == 4.0
+    assert report["by_agent_type"]["Plan"]["cost_usd"] is None
+    assert report["totals"]["cost_usd"] is None
+    su._print_table(report)
+    out = capsys.readouterr().out
+    assert "unpriced" in out and "$    4.00" in out

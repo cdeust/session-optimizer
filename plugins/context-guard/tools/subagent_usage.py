@@ -21,7 +21,7 @@ and ryoppippi/ccusage#313.
 
 This module is the single source of truth for:
   - parsing one transcript into a deduplicated, billed-token aggregate;
-  - pricing that aggregate per model with the correct cache-tier multipliers;
+  - pricing that aggregate per model version at its published cache-tier rates;
   - discovering every subagent transcript under a session.
 
 It is imported by the SubagentStop hook (live tracking) and exposes a CLI for
@@ -30,81 +30,93 @@ retrospective per-agent-type cost reporting.
 Sources for every constant are cited at the use site (zetetic source discipline).
 """
 
+from __future__ import annotations
+
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass, field
 
 # --- Pricing ---------------------------------------------------------------
-# Per-million-token rates and cache multipliers. Single source: Anthropic
-# Claude API docs (pricing table + prompt-caching economics), captured via the
-# claude-api skill on 2026-06-26.
-#   - Opus 4.8 : $5 in / $25 out per MTok
-#   - Sonnet 4.6: $3 in / $15 out per MTok
-#   - Haiku 4.5 : $1 in / $5  out per MTok
-#   - Fable 5  : $10 in / $50 out per MTok
-# Cache multipliers (relative to the model's input rate), same source:
-#   - cache write, 5-minute TTL : 1.25x input
-#   - cache write, 1-hour  TTL  : 2.00x input
-#   - cache read                : 0.10x input
-CACHE_WRITE_5M_MULT = (
-    1.25  # source: Anthropic prompt-caching economics (claude-api skill, 2026-06-26)
-)
-CACHE_WRITE_1H_MULT = (
-    2.00  # source: Anthropic prompt-caching economics (claude-api skill, 2026-06-26)
-)
-CACHE_READ_MULT = (
-    0.10  # source: Anthropic prompt-caching economics (claude-api skill, 2026-06-26)
+# Per-million-token USD rates, one row per model version. Every rate is read
+# from the official table, not derived from a multiplier: the cache-read rate
+# is 0.10x input for most models but 0.05x for Opus 5.5 and Sonnet 5.5 and
+# 0.025x for Fable 5.1 and Mythos 5.1, so a shared multiplier misprices them.
+_PRICING_SOURCE = (
+    "https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-07"
 )
 
 
 @dataclass(frozen=True)
 class ModelPrice:
-    """Per-MTok input/output USD rates for one model family."""
+    """Per-MTok USD rates for one model version.
+
+    cache_write_5m / cache_write_1h are the prompt-caching write rates for the
+    5-minute and 1-hour TTL; cache_read is the "hits and refreshes" rate.
+    """
 
     input_per_mtok: float
     output_per_mtok: float
+    cache_write_5m_per_mtok: float
+    cache_write_1h_per_mtok: float
+    cache_read_per_mtok: float
 
 
-# First substring match against the lowercased model id wins; mirrors the
-# matching discipline already used by ctxguard-thresholds.json.
-PRICING = [
-    (
-        "fable",
-        ModelPrice(10.0, 50.0),
-    ),  # source: Anthropic pricing (claude-api skill, 2026-06-26)
-    (
-        "mythos",
-        ModelPrice(10.0, 50.0),
-    ),  # source: Anthropic pricing — same tier as Fable 5
-    (
-        "opus",
-        ModelPrice(5.0, 25.0),
-    ),  # source: Anthropic pricing (claude-api skill, 2026-06-26)
-    (
-        "sonnet",
-        ModelPrice(3.0, 15.0),
-    ),  # source: Anthropic pricing (claude-api skill, 2026-06-26)
-    (
-        "haiku",
-        ModelPrice(1.0, 5.0),
-    ),  # source: Anthropic pricing (claude-api skill, 2026-06-26)
-]
-_DEFAULT_PRICE = ModelPrice(5.0, 25.0)  # unknown model -> Opus-tier (conservative)
+def _version_rx(family_version):
+    """Regex matching one exact model version inside a model id.
+
+    The version must be followed by the end of the id, a `-YYYYMMDD` snapshot
+    date, or a non-version character (`[1m]`, `@`, `:`), so `opus-5` does not
+    match `claude-opus-5-5` and `opus-4-8` does not match `opus-4-80`.
+    """
+    return re.compile(
+        r"(?:^|[^a-z0-9])" + re.escape(family_version) + r"(?=$|-\d{8}(?!\d)|[^-0-9])"
+    )
+
+
+# (model version, price). Order is irrelevant: each pattern matches one
+# version only. A model absent from this table is unpriced (price_for returns
+# None) rather than priced at a guess.
+# source: _PRICING_SOURCE for every row.
+_PRICE_ROWS = (
+    ("fable-5-1", ModelPrice(10.0, 50.0, 12.5, 20.0, 0.25)),
+    ("mythos-5-1", ModelPrice(10.0, 50.0, 12.5, 20.0, 0.25)),
+    ("fable-5", ModelPrice(10.0, 50.0, 12.5, 20.0, 1.0)),
+    ("mythos-5", ModelPrice(10.0, 50.0, 12.5, 20.0, 1.0)),
+    ("opus-5-5", ModelPrice(4.0, 20.0, 5.0, 8.0, 0.20)),
+    ("opus-5", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
+    ("opus-4-8", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
+    ("opus-4-7", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
+    ("opus-4-6", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
+    ("opus-4-5", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
+    ("opus-4-1", ModelPrice(15.0, 75.0, 18.75, 30.0, 1.50)),
+    ("opus-4", ModelPrice(15.0, 75.0, 18.75, 30.0, 1.50)),
+    ("sonnet-5-5", ModelPrice(2.0, 10.0, 2.5, 4.0, 0.10)),
+    ("sonnet-5", ModelPrice(2.0, 10.0, 2.5, 4.0, 0.20)),
+    ("sonnet-4-6", ModelPrice(3.0, 15.0, 3.75, 6.0, 0.30)),
+    ("sonnet-4-5", ModelPrice(3.0, 15.0, 3.75, 6.0, 0.30)),
+    ("sonnet-4", ModelPrice(3.0, 15.0, 3.75, 6.0, 0.30)),
+    ("haiku-4-5", ModelPrice(1.0, 5.0, 1.25, 2.0, 0.10)),
+    # Haiku 5.5 is deliberately absent: its rates depend on the size of each
+    # prompt (up to / over 100,000 tokens), and this module prices a whole
+    # transcript's summed tokens, so any single rate would be a guess.
+)
+PRICING = tuple((_version_rx(v), price) for v, price in _PRICE_ROWS)
 
 
 def price_for(model_id):
-    """Return the ModelPrice for a model id. Pure; never raises.
+    """Return the ModelPrice for a model id, or None if it is unpriced. Pure.
 
     Precondition:  model_id is a string or None.
-    Postcondition: returns the first substring-matched ModelPrice, else the
-                   Opus-tier default.
+    Postcondition: returns the price of the one table row whose version the
+                   id names, else None (unknown, tiered or missing model).
     """
     mid = (model_id or "").lower()
-    for needle, price in PRICING:
-        if needle in mid:
+    for rx, price in PRICING:
+        if rx.search(mid):
             return price
-    return _DEFAULT_PRICE
+    return None
 
 
 # --- Usage aggregate -------------------------------------------------------
@@ -173,21 +185,31 @@ class Usage:
 
 
 def cost_usd(usage):
-    """Total USD cost of a Usage, priced at its own model's rates.
+    """Total USD cost of a Usage at its own model's rates, or None if tokens
+    were billed on an unpriced model.
 
     Pure. Uses the per-transcript `model` for the rate; mixed-model transcripts
     (rare for a single subagent) are priced at the first observed model, which
     is the dominant one in practice.
     """
+    billed = (
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.cache_write_5m,
+        usage.cache_write_1h,
+        usage.cache_read,
+    )
+    if not any(billed):
+        return 0.0  # nothing billed costs nothing, whatever the model
     price = price_for(usage.model)
-    in_rate = price.input_per_mtok
-    out_rate = price.output_per_mtok
+    if price is None:
+        return None
     total = (
-        usage.input_tokens * in_rate
-        + usage.output_tokens * out_rate
-        + usage.cache_write_5m * in_rate * CACHE_WRITE_5M_MULT
-        + usage.cache_write_1h * in_rate * CACHE_WRITE_1H_MULT
-        + usage.cache_read * in_rate * CACHE_READ_MULT
+        usage.input_tokens * price.input_per_mtok
+        + usage.output_tokens * price.output_per_mtok
+        + usage.cache_write_5m * price.cache_write_5m_per_mtok
+        + usage.cache_write_1h * price.cache_write_1h_per_mtok
+        + usage.cache_read * price.cache_read_per_mtok
     )
     return total / 1_000_000.0
 
@@ -319,7 +341,7 @@ class SubagentRecord:
     description: str
     tool_use_id: str
     usage: Usage
-    cost_usd: float
+    cost_usd: float | None  # None: the model is unpriced
     transcript_path: str
 
 
@@ -426,9 +448,28 @@ def _iter_session_dirs(project_dir):
             yield full
 
 
+def _add_cost(total, cost):
+    """Sum two costs where None (unpriced) is absorbing. Pure."""
+    if total is None or cost is None:
+        return None
+    return total + cost
+
+
+def _round_cost(cost):
+    return None if cost is None else round(cost, 4)
+
+
+def _fmt_cost(cost):
+    return f"{'unpriced':>9}" if cost is None else f"${cost:>8.2f}"
+
+
 def build_report(cwd):
     """Aggregate subagent usage across all sessions of a project, grouped by
-    agent_type. Returns a dict suitable for JSON or table rendering."""
+    agent_type. Returns a dict suitable for JSON or table rendering.
+
+    A cost is None when any run it covers used an unpriced model: a partial
+    sum would be reported as if it were the whole spend.
+    """
     project_dir = _encoded_project_dir(cwd)
     by_type = {}
     grand = Usage()
@@ -439,13 +480,13 @@ def build_report(cwd):
             rec = subagent_record(path)
             count += 1
             grand.add(rec.usage)
-            grand_cost += rec.cost_usd
+            grand_cost = _add_cost(grand_cost, rec.cost_usd)
             bucket = by_type.setdefault(
                 rec.agent_type, {"count": 0, "usage": Usage(), "cost_usd": 0.0}
             )
             bucket["count"] += 1
             bucket["usage"].add(rec.usage)
-            bucket["cost_usd"] += rec.cost_usd
+            bucket["cost_usd"] = _add_cost(bucket["cost_usd"], rec.cost_usd)
     return {
         "project_dir": project_dir,
         "subagent_count": count,
@@ -453,13 +494,13 @@ def build_report(cwd):
             t: {
                 "count": b["count"],
                 "usage": b["usage"].to_dict(),
-                "cost_usd": round(b["cost_usd"], 4),
+                "cost_usd": _round_cost(b["cost_usd"]),
             }
             for t, b in sorted(by_type.items())
         },
         "totals": {
             "usage": grand.to_dict(),
-            "cost_usd": round(grand_cost, 4),
+            "cost_usd": _round_cost(grand_cost),
         },
     }
 
@@ -484,13 +525,13 @@ def _print_table(report):
             f"{_fmt_tokens(u['input_tokens']):>7} "
             f"{_fmt_tokens(u['output_tokens']):>7} "
             f"{_fmt_tokens(cache):>7} "
-            f"${b['cost_usd']:>8.2f}"
+            f"{_fmt_cost(b['cost_usd'])}"
         )
     tot = report["totals"]
     print("  " + "-" * (len(header) - 2))
     print(
         f"  {'TOTAL':<24} {report['subagent_count']:>5} "
-        f"{'':>7} {'':>7} {'':>7} ${tot['cost_usd']:>8.2f}"
+        f"{'':>7} {'':>7} {'':>7} {_fmt_cost(tot['cost_usd'])}"
     )
 
 

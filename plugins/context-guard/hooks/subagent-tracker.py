@@ -85,7 +85,7 @@ def _agent_entry(rec):
         "tool_uses": rec.usage.tool_uses,
         "web_search_requests": rec.usage.web_search_requests,
         "web_fetch_requests": rec.usage.web_fetch_requests,
-        "cost_usd": round(rec.cost_usd, 4),
+        "cost_usd": None if rec.cost_usd is None else round(rec.cost_usd, 4),
         "context_tokens": rec.usage.context_tokens,
     }
 

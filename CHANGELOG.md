@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The subagent spend ledger of context-guard (`plugins/context-guard/tools/subagent_usage.py`) priced by model family with one cache-read multiplier, so Opus 5.5 was billed at the Opus 5 rate ($5/$25 instead of $4/$20) and Fable 5.1 cache reads at 0.1x input instead of $0.25; it now carries one row per model version with the five published rates (pricing page read 2026-11-07), and an unknown or prompt-size-tiered model (Haiku 5.5) is reported as unpriced instead of falling back to the Opus rate (session-optimizer #63, first slice).
 - Coverage now measures `plugins/disk-hygiene/hooks` and `plugins/statusline/hooks`, which `[tool.coverage.run] source` in `pyproject.toml` left out, so neither was reported nor held by the floor; `tests/test_coverage_source.py` requires `source` to name every directory of shipped Python under `plugins/` (session-optimizer #61).
 - The `merge` job of `.github/workflows/pipeline.yml` sets `GH_REPO: ${{ github.repository }}` on its `gh pr merge` step: the job runs without a checkout, so gh could not infer the repository and failed with `fatal: not a git repository` after every stage was green (session-optimizer #65, run 39756969927, 2026-10-22).
 

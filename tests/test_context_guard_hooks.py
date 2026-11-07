@@ -669,6 +669,8 @@ def test_tracker_helpers_and_main_sweep(tmp_path, monkeypatch, child_path_field)
     tracker._recompute_totals(state)
     assert state["totals"]["count"] == 2
     assert state["totals"]["input_tokens"] == 5
+    unpriced = usage_core.SubagentRecord("u", "Plan", "", "", usage, None, "/u")
+    assert tracker._agent_entry(unpriced)["cost_usd"] is None
 
     monkeypatch.setattr(tracker, "subagent_record", lambda path: rec if path else None)
     tracker._update_from_transcript({"agents": {}}, "")
