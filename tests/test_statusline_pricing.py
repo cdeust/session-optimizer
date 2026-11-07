@@ -1,0 +1,197 @@
+"""Tests for the statusline price table (plugins/statusline/assets/pricing.json)
+and the jq pricer that reads it (plugins/statusline/assets/lib/pricing.sh).
+
+Each test runs the shipped costs.sh as a subprocess, so what is checked is the
+figure the statusline actually computes. session-optimizer #63.
+"""
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+ASSETS = ROOT / "plugins" / "statusline" / "assets"
+COSTS = ASSETS / "costs.sh"
+PRICING = ASSETS / "pricing.json"
+
+sys.path.insert(0, str(ROOT / "plugins" / "context-guard" / "tools"))
+
+import subagent_usage as su
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("jq") is None or shutil.which("bash") is None,
+    reason="the statusline pricer needs bash and jq",
+)
+
+MTOK = 1_000_000
+
+
+def _env(tmp_path):
+    env = {k: v for k, v in os.environ.items() if not k.startswith("STATUSLINE_")}
+    env["HOME"] = str(tmp_path)
+    env["STATUSLINE_STATE_DIR"] = str(tmp_path / "state")
+    return env
+
+
+def _price_lines(tmp_path, records):
+    sample = tmp_path / "sample.jsonl"
+    sample.write_text("".join(json.dumps(r) + "\n" for r in records))
+    result = subprocess.run(
+        ["bash", str(COSTS), "__price_sample", str(sample)],
+        env=_env(tmp_path),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return [json.loads(line) for line in result.stdout.splitlines()]
+
+
+def _line(model, **usage):
+    return {"message": {"model": model, "usage": usage}}
+
+
+def _rates(tmp_path, model):
+    """The five per-MTok rates the pricer applies to `model`, one per line."""
+    lines = _price_lines(
+        tmp_path,
+        [
+            _line(model, input_tokens=MTOK),
+            _line(model, output_tokens=MTOK),
+            _line(
+                model,
+                cache_creation_input_tokens=MTOK,
+                cache_creation={"ephemeral_5m_input_tokens": MTOK},
+            ),
+            _line(
+                model,
+                cache_creation_input_tokens=MTOK,
+                cache_creation={"ephemeral_1h_input_tokens": MTOK},
+            ),
+            _line(model, cache_read_input_tokens=MTOK),
+        ],
+    )
+    return tuple(lines)
+
+
+# Rates read from https://platform.claude.com/docs/en/about-claude/pricing on
+# 2026-11-07: (input, output, 5m write, 1h write, cache read) per MTok.
+@pytest.mark.parametrize(
+    "model_id, rates",
+    [
+        ("claude-opus-5-5", (4, 20, 5, 8, 0.2)),
+        ("claude-opus-5-5[1m]", (4, 20, 5, 8, 0.2)),
+        ("claude-sonnet-5-5", (2, 10, 2.5, 4, 0.1)),
+        ("claude-fable-5-1", (10, 50, 12.5, 20, 0.25)),
+        ("claude-mythos-5-1", (10, 50, 12.5, 20, 0.25)),
+        ("claude-haiku-4-5-20251001", (1, 5, 1.25, 2, 0.1)),
+        ("claude-opus-5", (5, 25, 6.25, 10, 0.5)),
+        ("claude-opus-4-8", (5, 25, 6.25, 10, 0.5)),
+        ("claude-opus-4-1", (15, 75, 18.75, 30, 1.5)),
+        ("claude-sonnet-5", (2, 10, 2.5, 4, 0.2)),
+        ("claude-sonnet-4-6", (3, 15, 3.75, 6, 0.3)),
+        ("claude-fable-5", (10, 50, 12.5, 20, 1.0)),
+    ],
+)
+def test_each_model_version_is_priced_at_its_published_rates(tmp_path, model_id, rates):
+    assert _rates(tmp_path, model_id) == pytest.approx(rates)
+
+
+@pytest.mark.parametrize(
+    "model_id",
+    [
+        "claude-haiku-5-5",  # rates depend on each prompt's size
+        "claude-opus-6",  # a future version must not fall to an older row
+        "claude-opus",
+        "claude-sonnet",
+        "some-other-model",
+        "",
+    ],
+)
+def test_a_model_no_row_names_is_unpriced_not_guessed(tmp_path, model_id):
+    assert _price_lines(tmp_path, [_line(model_id, input_tokens=MTOK)]) == ["unpriced"]
+
+
+def test_every_row_names_one_version_and_there_is_no_catch_all():
+    table = json.loads(PRICING.read_text())
+    versions = [row["version"] for row in table["models"]]
+    assert len(versions) == len(set(versions))
+    for row in table["models"]:
+        assert row["match"], row
+        assert row["version"] in row["match"], row
+    assert "sonnet5_intro_until" not in table
+    assert "pricing" in table["source"] and "read 2026-11-07" in table["source"]
+
+
+def test_statusline_table_matches_the_subagent_ledger_table():
+    # Two copies until the single-source decision of #63 is taken; this keeps
+    # them from drifting apart again.
+    table = json.loads(PRICING.read_text())
+    statusline = {
+        row["version"]: (row["ind"], row["out"], row["cw5"], row["cw1"], row["cr"])
+        for row in table["models"]
+    }
+    ledger = {
+        version: (
+            p.input_per_mtok,
+            p.output_per_mtok,
+            p.cache_write_5m_per_mtok,
+            p.cache_write_1h_per_mtok,
+            p.cache_read_per_mtok,
+        )
+        for version, p in su._PRICE_ROWS
+    }
+    assert statusline == ledger
+
+
+def test_session_cost_leaves_unpriced_turns_out_of_the_sum(tmp_path):
+    transcript = tmp_path / "s1.jsonl"
+    turns = [
+        {
+            "type": "assistant",
+            "requestId": "r1",
+            "message": {
+                "id": "m1",
+                "model": "claude-opus-5-5",
+                "usage": {"input_tokens": MTOK, "output_tokens": MTOK},
+            },
+        },
+        {
+            "type": "assistant",
+            "requestId": "r2",
+            "message": {
+                "id": "m2",
+                "model": "claude-haiku-5-5",
+                "usage": {"input_tokens": MTOK, "output_tokens": MTOK},
+            },
+        },
+    ]
+    transcript.write_text("".join(json.dumps(t) + "\n" for t in turns))
+    payload = json.dumps(
+        {
+            "session_id": "s1",
+            "transcript_path": str(transcript),
+            "cost": {"total_duration_ms": 1000},
+        }
+    )
+    result = subprocess.run(
+        ["bash", str(COSTS), "update"],
+        input=payload,
+        env=_env(tmp_path),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "state" / "costs.jsonl").read_text().splitlines()
+    ]
+    # Opus 5.5 only: 1 MTok in at $4 + 1 MTok out at $20. The Haiku 5.5 turn
+    # adds nothing instead of being priced at a generic $3 / $15 row.
+    assert [r["cost_usd"] for r in rows] == [pytest.approx(24.0)]
