@@ -163,7 +163,7 @@ dir=$(basename "$cwd")
 resolve_ctx_thresholds "$model"          # -> WARN_TOKENS SAVE_TOKENS
 cache_ttl_min=$(read_cache_ttl_min)
 collect_git "$cwd"                       # -> git_* n*
-read_cost_ledger "$session_id" "$input"  # -> cost_session cost_today cost_month cost_avg_day
+read_cost_ledger "$session_id" "$input"  # -> cost_session cost_unpriced cost_today cost_month cost_avg_day
 read_transcript_telemetry "$transcript_path" "$now_epoch"   # -> txt_*
 read_subagent_totals "$session_id"       # -> sub_count sub_tokens
 write_session_snapshot "$session_id" "$input"   # state/sessions/<id>.snapshot.json

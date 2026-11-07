@@ -28,7 +28,11 @@ _MODELS=$(jq -c '.models | map({match, ind, out, cw5, cw1, cr})' "$_PRICING")
 # breakdown is present, with any unattributed cache-creation priced at the 5m rate.
 # A turn whose model no row names is unpriced and left out of the sum: there is
 # no generic fallback row, because a guessed rate is a wrong figure shown as a
-# right one (session-optimizer #63).
+# right one (session-optimizer #63). It is counted instead, so the statusline
+# can say the figure is a lower bound: the program prints "<cost> <unpriced>",
+# where <unpriced> is the number of deduplicated turns that carried tokens but
+# matched no row. A zero-usage turn (Claude Code's "<synthetic>" messages)
+# costs nothing whatever its model and is not counted.
 # shellcheck disable=SC2016  # jq program: $models/$ml are jq variables, not shell.
 _COST_JQ='
 def rates(m):
@@ -48,19 +52,28 @@ def rates(m):
      | { dk: (if ($v.message.id) then ($v.message.id + ":" + ($v.requestId // "")) else "line-\($i)" end),
          m: $v.message.model, u: $v.message.usage } )
 | unique_by(.dk)
-| [ .[]
-  | .u as $u | rates(.m) as $r
-  | select($r != null)
-  | ( ($u.input_tokens // 0)  * $r.ind
-    + ($u.output_tokens // 0) * $r.out
-    + (($u.cache_creation.ephemeral_5m_input_tokens // 0) * $r.cw5)
-    + (($u.cache_creation.ephemeral_1h_input_tokens // 0) * $r.cw1)
-    + ( ( [ ($u.cache_creation_input_tokens // 0)
-            - (($u.cache_creation.ephemeral_5m_input_tokens // 0)
-              +($u.cache_creation.ephemeral_1h_input_tokens // 0)), 0 ] | max ) * $r.cw5 )
-    + ($u.cache_read_input_tokens // 0) * $r.cr
-    ) / 1000000
-] | add // 0
+| map(. + { r: rates(.m) })
+| ( [ .[]
+    | select(.r != null)
+    | .u as $u | .r as $r
+    | ( ($u.input_tokens // 0)  * $r.ind
+      + ($u.output_tokens // 0) * $r.out
+      + (($u.cache_creation.ephemeral_5m_input_tokens // 0) * $r.cw5)
+      + (($u.cache_creation.ephemeral_1h_input_tokens // 0) * $r.cw1)
+      + ( ( [ ($u.cache_creation_input_tokens // 0)
+              - (($u.cache_creation.ephemeral_5m_input_tokens // 0)
+                +($u.cache_creation.ephemeral_1h_input_tokens // 0)), 0 ] | max ) * $r.cw5 )
+      + ($u.cache_read_input_tokens // 0) * $r.cr
+      ) / 1000000
+    ] | add // 0 ) as $cost
+| ( [ .[]
+    | select(.r == null)
+    | .u
+    | select(((.input_tokens // 0) + (.output_tokens // 0)
+              + (.cache_creation_input_tokens // 0)
+              + (.cache_read_input_tokens // 0)) > 0)
+    ] | length ) as $unpriced
+| "\($cost) \($unpriced)"
 '
 
 # Test seam: price EACH line of a transcript-shaped file independently (no
@@ -94,54 +107,62 @@ cmd_price_sample() {
 }
 
 # Generic memoized pricing: re-price only when the watched mtime changes (and
-# not more than once per throttle window), caching "<newest_mtime> <cost>
-# <priced_at>" in $1. Shared by _main_cost and _subagent_cost below.
+# not more than once per throttle window), caching
+# "<newest_mtime> <cost> <priced_at> <unpriced>" in $1 and echoing
+# "<cost> <unpriced>". Shared by _main_cost and _subagent_cost below.
 #   * mtime key: transcripts are append-only, so if the newest mtime is
 #                  unchanged the priced cost is still exact; skip the parse.
 #   * throttle : even when it IS changing, re-price at most once per
 #                  $3 seconds. Bounds a busy burst to one parse per window;
 #                  the displayed cost simply lags up to that delta.
+#   * format   : a cache line without the fourth field was written before the
+#                  unpriced count existed; it is re-priced rather than read as
+#                  "0 unpriced", which it does not prove.
 # Steady state is one stat (~2ms) instead of re-reading a tens-of-MB transcript.
 # ponytail: mtime granularity is whole seconds; the throttle makes sub-second
 # precision irrelevant anyway.
 _price_cached() {
     local cache="$1" newest="$2" throttle="$3"; shift 3
     local price_fn="$1"; shift
-    [[ -n "$newest" ]] || { echo 0; return; }
+    [[ -n "$newest" ]] || { echo "0 0"; return; }
 
     local now; now=$(date +%s)
     if [[ -s "$cache" ]]; then
-        local cached_ts cached_cost cached_at
-        read -r cached_ts cached_cost cached_at < "$cache"
+        local cached_ts cached_cost cached_at cached_unpriced
+        read -r cached_ts cached_cost cached_at cached_unpriced < "$cache"
         # Reuse if unchanged OR we re-priced within the throttle window.
-        if [[ "$cached_ts" == "$newest" ]] || (( now - ${cached_at:-0} < throttle )); then
-            printf '%s' "$cached_cost"; return
+        if [[ "$cached_unpriced" =~ ^[0-9]+$ ]] \
+            && { [[ "$cached_ts" == "$newest" ]] || (( now - ${cached_at:-0} < throttle )); }; then
+            printf '%s %s' "$cached_cost" "$cached_unpriced"; return
         fi
     fi
 
-    local cost; cost=$("$price_fn" "$@")
+    local cost unpriced
+    read -r cost unpriced < <("$price_fn" "$@") || true
     cost=$(awk -v c="${cost:-0}" 'BEGIN{printf "%.6f", c+0}')
+    [[ "${unpriced:-}" =~ ^[0-9]+$ ]] || unpriced=0
     mkdir -p "$(dirname "$cache")" 2>/dev/null
-    printf '%s %s %s\n' "$newest" "$cost" "$now" > "$cache" 2>/dev/null
-    printf '%s' "$cost"
+    printf '%s %s %s %s\n' "$newest" "$cost" "$now" "$unpriced" > "$cache" 2>/dev/null
+    printf '%s %s' "$cost" "$unpriced"
 }
 
 _do_price_file() {
-    jq -nR --argjson models "$_MODELS" "$_COST_JQ" < "$1" 2>/dev/null
+    jq -nrR --argjson models "$_MODELS" "$_COST_JQ" < "$1" 2>/dev/null
 }
 
 _do_price_dir() {
     find "$1" -type f -name '*.jsonl' -exec cat {} + 2>/dev/null \
-        | jq -nR --argjson models "$_MODELS" "$_COST_JQ" 2>/dev/null
+        | jq -nrR --argjson models "$_MODELS" "$_COST_JQ" 2>/dev/null
 }
 
 # Price the session's OWN spend from its main transcript file. This is the
 # authoritative source for the main conversation's cost (see header note on
 # why cost.total_cost_usd is not used: it double-counts on session resume).
 # Arg: path to the main session transcript (.../<session_id>.jsonl).
+# Echoes "<cost> <unpriced>".
 _main_cost() {
     local transcript="$1"
-    [[ -n "$transcript" && -f "$transcript" ]] || { echo 0; return; }
+    [[ -n "$transcript" && -f "$transcript" ]] || { echo "0 0"; return; }
     local mtime; mtime=$(file_mtime "$transcript")
     local cache; cache="${COST_CACHE_DIR}/$(basename "${transcript%.jsonl}").main"
     _price_cached "$cache" "$mtime" "${STATUSLINE_MAIN_REFRESH_SEC:-60}" _do_price_file "$transcript"
@@ -149,12 +170,12 @@ _main_cost() {
 
 # Sum subagent/agent-team spend for a session from its transcript siblings.
 # Arg: path to the main session transcript (.../<session_id>.jsonl).
-# Echoes a dollar figure (0 if the subagents dir is absent or empty).
+# Echoes "<cost> <unpriced>" ("0 0" if the subagents dir is absent or empty).
 _subagent_cost() {
     local transcript="$1"
-    [[ -n "$transcript" ]] || { echo 0; return; }
+    [[ -n "$transcript" ]] || { echo "0 0"; return; }
     local subdir="${transcript%.jsonl}/subagents"
-    [[ -d "$subdir" ]] || { echo 0; return; }
+    [[ -d "$subdir" ]] || { echo "0 0"; return; }
 
     # Newest transcript mtime across the WHOLE subtree = change key. Must recurse to
     # match the recursive pricing below: agents can spawn agents, so a nested
@@ -162,7 +183,7 @@ _subagent_cost() {
     local newest
     newest=$(find "$subdir" -type f -name '*.jsonl' -print0 2>/dev/null \
         | while IFS= read -r -d '' f; do file_mtime "$f"; echo; done | sort -rn | head -1)
-    [[ -n "$newest" ]] || { echo 0; return; }   # dir present but empty
+    [[ -n "$newest" ]] || { echo "0 0"; return; }   # dir present but empty
 
     local cache; cache="${COST_CACHE_DIR}/$(basename "${transcript%.jsonl}").sub"
     _price_cached "$cache" "$newest" "${STATUSLINE_SUBAGENT_REFRESH_SEC:-60}" _do_price_dir "$subdir"
