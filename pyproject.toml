@@ -5,9 +5,11 @@ testpaths = ["tests"]
 source = [
   "plugins/context-guard/hooks",
   "plugins/context-guard/tools",
+  "plugins/disk-hygiene/hooks",
   "plugins/refine-gate/hooks",
   "plugins/refine-gate/tools",
   "plugins/statusline/assets",
+  "plugins/statusline/hooks",
 ]
 # coverage.py 7.10+ starts measurement at Python subprocess startup. The
 # existing contract tests invoke the shipped hook entry points as subprocesses,
