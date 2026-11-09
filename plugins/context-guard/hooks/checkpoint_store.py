@@ -16,6 +16,7 @@ every Stop of the session, forced continuations included: the Stop that ends
 the checkpoint turn is the one that sees the filled file.
 """
 
+import contextlib
 import os
 
 import checkpoint_stub
@@ -54,10 +55,10 @@ def _write_atomic(path: str, text: str) -> None:
             fh.write(text)
         os.replace(tmp, path)
     except OSError:
-        try:
+        # Best-effort cleanup of the temp file; the original error is the one
+        # the caller must see, so a failed unlink is not allowed to replace it.
+        with contextlib.suppress(OSError):
             os.unlink(tmp)
-        except OSError:
-            pass
         raise
 
 
