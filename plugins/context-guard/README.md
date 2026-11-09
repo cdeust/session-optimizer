@@ -87,7 +87,7 @@ published spec, see the citation table below.
 | Level | Trigger | Action |
 |---|---|---|
 | below WARN | `ctx < threshold` | nothing, silent, no side effects |
-| **WARN** | `ctx ≥ warn` | captures **mechanical state for free** (date, model, token count, branch, last commit, modified files) as a summary-schema stub at `~/.claude/memories/checkpoints/{session_id,latest}.md`, and **blocks the stop exactly once as a reflection pause**: the model distills the session and hands the summary to the `memory-writer` subagent, which merges it into the stub, then the session **continues**. |
+| **WARN** | `ctx ≥ warn` | captures **mechanical state for free** (date, model, token count, branch, last commit, modified files) as a summary-schema stub at `~/.claude/memories/checkpoints/<session_id>.md` (never over a checkpoint of that session that is already complete), and **blocks the stop exactly once as a reflection pause**: the model distills the session and hands the summary to the `memory-writer` subagent, which merges it into the stub, then the session **continues**. |
 | **HARD** | `ctx ≥ hard` | captures state **and blocks the stop exactly once**, injecting the checkpoint-finalize procedure so the model completes the checkpoint file (normally a formality, the WARN reflection already wrote it) and signals you to `/clear` + resume from the checkpoint. |
 
 ### Safety properties
@@ -113,9 +113,14 @@ given and never invents content.
 ### Persistence: generic by default, memory layer by detection
 
 - **Default (vanilla Claude Code)**, the agent fills the hook's mechanical
-  stub in place under `~/.claude/memories/checkpoints/` and mirrors it to
-  `latest.md`. No extra tooling required; every instruction the hook emits
-  references only tools that exist in vanilla Claude Code.
+  stub in place under `~/.claude/memories/checkpoints/<session_id>.md`. No
+  extra tooling required; every instruction the hook emits references only
+  tools that exist in vanilla Claude Code.
+- **`latest.md` is only a complete checkpoint.** No fire writes it. On every
+  Stop of a session (forced continuations included) the hook copies that
+  session's checkpoint to `latest.md` when it is newer and no `<to be filled`
+  placeholder is left, so a resume that reads `latest.md` never lands on an
+  unfilled stub (`hooks/checkpoint_store.py`).
 - **Scoped memory store (runtime-detected)**, when a scoped memory layer is
   installed (`tools/memory-tool.sh` in the project root or
   `~/.claude/tools/`), the hook detects it per invocation and switches the
@@ -156,8 +161,8 @@ the snippet itself:
 - `HOME` is sandboxed to a throwaway directory for the duration of the
   command (the hook resolves the checkpoint path via
   `os.path.expanduser("~")`, so `HOME` redirects it) and removed afterward,
-  without this the snippet overwrites your real
-  `~/.claude/memories/checkpoints/latest.md`.
+  without this the snippet leaves a demo checkpoint in your real
+  `~/.claude/memories/checkpoints/`.
 
 ### Test the guard on a Codex payload
 
@@ -297,7 +302,7 @@ Direct script invocation alone does not prove this lifecycle.
 ```bash
 mkdir -p ~/.claude/hooks ~/.claude/agents ~/.claude/tools
 cp hooks/stop-context-guard.py hooks/checkpoint_protocol.py \
-   hooks/checkpoint_stub.py hooks/host_detect.py hooks/subagent_spend.py \
+   hooks/checkpoint_store.py hooks/checkpoint_stub.py hooks/host_detect.py hooks/subagent_spend.py \
    hooks/thresholds.py hooks/transcript_codex.py hooks/transcript_lines.py \
    hooks/transcript_scan.py hooks/usage_reader.py hooks/subagent-tracker.py \
    hooks/subagent_codex.py ~/.claude/hooks/
@@ -306,11 +311,11 @@ chmod +x ~/.claude/hooks/stop-context-guard.py
 cp agents/memory-writer.md ~/.claude/agents/memory-writer.md
 ```
 
-`stop-context-guard.py` imports eight sibling modules directly
-(`checkpoint_protocol.py`, `checkpoint_stub.py`, `host_detect.py`,
+`stop-context-guard.py` imports nine sibling modules directly
+(`checkpoint_protocol.py`, `checkpoint_store.py`, `checkpoint_stub.py`, `host_detect.py`,
 `subagent_spend.py`, `thresholds.py`, `transcript_lines.py`,
 `transcript_scan.py`, `usage_reader.py`), plus `transcript_codex.py`
-transitively via `usage_reader.py`, copy all nine, they must stay together.
+transitively via `usage_reader.py`, copy all ten, they must stay together.
 `subagent-tracker.py` imports `subagent_codex.py` and the shared Claude
 core from the sibling `tools/` directory. Then register the `Stop` /
 `SubagentStop` entries (see

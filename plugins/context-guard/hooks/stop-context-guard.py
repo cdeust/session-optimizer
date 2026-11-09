@@ -53,15 +53,16 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-# Eight sibling modules in this hooks/ directory split the concerns this file
-# used to carry alone (protocol text, stub render, config lookup, Claude/Codex
-# line predicates, chunked-line walk, host dispatch, spend render) -- see each
-# module's own docstring. Named failure mode: a manual install copied only
+# Nine sibling modules in this hooks/ directory split the concerns this file
+# used to carry alone (protocol text, stub render, checkpoint files, config
+# lookup, Claude/Codex line predicates, chunked-line walk, host dispatch, spend
+# render) -- see each module's own docstring. Named failure mode: a manual install copied only
 # this script. A Stop hook must never fail hard, so degrade to inert rather
 # than erroring every stop.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import checkpoint_protocol
+    import checkpoint_store
     import checkpoint_stub
     import host_detect
     import subagent_spend
@@ -259,12 +260,13 @@ def _sub_state_line(session_id: str) -> str:
 
 
 def _write_stub(ev: FireEvent) -> str:
-    """Capture mechanical session state for free. Returns the stub path, or
-    "" if the checkpoints directory or either file could not be written.
-    Rendering itself is pure and lives in the sibling checkpoint_stub module;
-    this function owns the I/O (git subprocess calls, subagent-aggregate
-    read, file writes)."""
-    root = os.path.join(os.path.expanduser("~"), ".claude", "memories", "checkpoints")
+    """Capture mechanical session state for free. Returns the per-session
+    checkpoint path, or "" if the checkpoints directory or the file could not
+    be written. Rendering itself is pure and lives in the sibling
+    checkpoint_stub module; which file is written (never latest.md, never over
+    a complete checkpoint) is checkpoint_store's; this function owns the git
+    subprocess calls and the subagent-aggregate read."""
+    root = checkpoint_store.root()
     try:
         os.makedirs(root, exist_ok=True)
     except OSError:
@@ -277,17 +279,10 @@ def _write_stub(ev: FireEvent) -> str:
         modified=_git(ev.cwd, "status", "--porcelain"),
     )
     stub = checkpoint_stub.render(ev, git_info, _sub_state_line(ev.session_id))
-
-    per_session = os.path.join(root, f"{ev.session_id}.md")
-    latest = os.path.join(root, "latest.md")
     try:
-        with open(per_session, "w", encoding="utf-8") as fh:
-            fh.write(stub)
-        with open(latest, "w", encoding="utf-8") as fh:
-            fh.write(stub)
+        return checkpoint_store.write_stub(root, ev.session_id, stub)
     except OSError:
         return ""
-    return per_session
 
 
 def _load_state(session_id: str) -> dict:
@@ -318,18 +313,19 @@ def _save_state(session_id: str, state: dict) -> None:
 
 
 def _parse_stop_input():
-    """Read and validate the Stop-hook stdin payload.
+    """Read the Stop-hook stdin payload.
 
-    Postcondition: returns the parsed dict when it is JSON, a dict, and not
-    already inside a forced continuation; else None (unparsable JSON, a
-    non-dict JSON value, or stop_hook_active is true) -- every None case
-    means "the caller should _exit() immediately".
+    Postcondition: returns the parsed dict when it is JSON and a dict; else
+    None (unparsable JSON or a non-dict JSON value), meaning "the caller
+    should _exit() immediately". A forced continuation (stop_hook_active) is
+    returned too: main() still promotes the session's checkpoint on it, since
+    the Stop that ends the checkpoint turn is one, then exits.
     """
     try:
         data = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         return None
-    if not isinstance(data, dict) or data.get("stop_hook_active"):
+    if not isinstance(data, dict):
         return None
     return data
 
@@ -465,6 +461,11 @@ def main():
         _exit()
 
     session_id = data.get("session_id") or "unknown"
+    # Every Stop, forced continuation included: the checkpoint the model or the
+    # memory-writer filled after the last fire becomes latest.md once complete.
+    checkpoint_store.promote(checkpoint_store.root(), session_id)
+    if data.get("stop_hook_active"):
+        _exit()
     transcript_path = data.get("transcript_path")
     cwd = data.get("cwd") or os.getcwd()
     host = host_detect.detect_host(transcript_path)

@@ -13,6 +13,11 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+# Marks every semantic field the model still has to write. A checkpoint that
+# still contains it is incomplete and is never promoted to latest.md
+# (checkpoint_store.is_complete).
+PLACEHOLDER = "<to be filled"
+
 
 @dataclass(frozen=True)
 class GitInfo:
@@ -37,7 +42,7 @@ description: "Auto-checkpoint ({ev.level}) at {ev.ctx:,} tokens — session {ev.
 > quoted tool output to 2,000 chars.
 
 ### Goals
-<to be filled: what this session is trying to achieve, in priority order>
+{PLACEHOLDER}: what this session is trying to achieve, in priority order>
 
 ### File references
 (paths + line ranges the resumed session will need; seeded from git status —
@@ -45,17 +50,17 @@ replace with the load-bearing files and add `path:start-end` line ranges)
 {_modified_lines(git_info.modified)}
 
 ### Errors and fixes
-<to be filled: each error hit this session and how it was fixed or worked around>
+{PLACEHOLDER}: each error hit this session and how it was fixed or worked around>
 
 ### Current state
 - session_id: {ev.session_id}
 - model: {ev.model_id or "unknown"} · context tokens at trigger: {ev.ctx:,}
 - working dir: {ev.cwd}
 - branch: {git_info.branch or "(unknown)"} · last commit: {git_info.last_commit or "(none)"}
-{sub_state}<to be filled: one paragraph — where the work stands right now>
+{sub_state}{PLACEHOLDER}: one paragraph — where the work stands right now>
 
 ### Next steps
-<to be filled: exact ordered actions for the resumed session; first one must be
+{PLACEHOLDER}: exact ordered actions for the resumed session; first one must be
 executable without re-deriving anything>
 
 ### Resume contract

@@ -20,6 +20,18 @@ HOOKS = ROOT / "plugins" / "context-guard" / "hooks"
 TOOLS = ROOT / "plugins" / "context-guard" / "tools"
 PLUGIN_ROOT = ROOT / "plugins" / "context-guard"
 README = PLUGIN_ROOT / "README.md"
+# The operator's real HOME, read before any test sandboxes it: only the README
+# smoke-test guard below compares against it, to prove nothing touched it.
+REAL_HOME = Path(os.path.expanduser("~"))
+
+
+@pytest.fixture(autouse=True)
+def _sandboxed_home(tmp_path_factory, monkeypatch):
+    """Every test of this module runs under a throwaway HOME, so no fixture
+    checkpoint ever lands in the real ~/.claude/memories/checkpoints/ next to
+    the operator's resume material (session-optimizer #64). A test that sets
+    its own HOME overrides this one."""
+    monkeypatch.setenv("HOME", str(tmp_path_factory.mktemp("home")))
 
 
 def _load(name: str, path: Path):
@@ -129,7 +141,8 @@ def test_protocol_detects_project_tool_and_renders_both_contracts(
     assert "memory-writer" in generic_warn
     assert "MEMORY_AGENT_ID" in scoped_warn
     assert "remember call" in scoped_warn
-    assert "latest.md" in generic_hard
+    assert "latest.md" not in generic_hard
+    assert "<this session's id>.md" in generic_hard
     assert "MEMORY_AGENT_ID" in scoped_hard
 
 
@@ -230,7 +243,8 @@ def test_stub_and_level_state_round_trip(tmp_path, monkeypatch):
     stub = guard._write_stub(ev)
     text = Path(stub).read_text()
     assert "feature" in text and "README.md" in text and "2 runs" in text
-    assert (Path(stub).parent / "latest.md").read_text() == text
+    assert Path(stub).name == "session-123.md"
+    assert not (Path(stub).parent / "latest.md").exists()
 
     monkeypatch.setattr(guard, "STATE_DIR", str(tmp_path))
     assert guard._load_state("fresh") == {"level": "none"}
@@ -755,13 +769,7 @@ def test_readme_test_the_guard_snippet_fires_block_on_first_and_second_run(tmp_p
     fake_home = tmp_path / "home"
     fake_home.mkdir()
 
-    real_checkpoint = (
-        Path(os.path.expanduser("~"))
-        / ".claude"
-        / "memories"
-        / "checkpoints"
-        / "latest.md"
-    )
+    real_checkpoint = REAL_HOME / ".claude" / "memories" / "checkpoints" / "latest.md"
     before_mtime = real_checkpoint.stat().st_mtime if real_checkpoint.exists() else None
 
     first_stdout = _run_readme_snippet(script, fake_home)
@@ -808,6 +816,7 @@ def test_readme_test_the_tracker_snippet_cleans_up_its_state_file():
 
 GUARD_SIBLING_MODULES = [
     "checkpoint_protocol",
+    "checkpoint_store",
     "checkpoint_stub",
     "host_detect",
     "subagent_spend",
@@ -877,3 +886,144 @@ def test_tracker_degrades_to_inert_when_shared_core_is_missing(tmp_path):
     )
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == ""
+
+
+# --- latest.md holds only a complete checkpoint (session-optimizer #64) -----
+
+store = guard.checkpoint_store
+stub_render = guard.checkpoint_stub
+
+COMPLETE = "### Goals\nShip #64.\n### Next steps\nOpen the PR.\n"
+
+
+def _fake_git(monkeypatch):
+    monkeypatch.setattr(guard, "_git", lambda _cwd, *args: "")
+    monkeypatch.setattr(guard, "_subagent_summary", lambda _sid: (0, 0, 0.0))
+
+
+def _checkpoints() -> Path:
+    return Path(store.root())
+
+
+def test_the_rendered_stub_carries_the_placeholder_the_gate_refuses():
+    ev = guard.FireEvent("s", "/x", 190_000, "opus", "warn")
+    text = stub_render.render(ev, stub_render.GitInfo("", "", ""), "")
+    assert stub_render.PLACEHOLDER in text
+    assert not store.is_complete(text)
+    assert store.is_complete(COMPLETE)
+
+
+def test_a_second_fire_leaves_a_completed_latest_untouched(monkeypatch):
+    _fake_git(monkeypatch)
+    root = _checkpoints()
+    root.mkdir(parents=True)
+    (root / "latest.md").write_text(COMPLETE)
+    guard._write_stub(guard.FireEvent("new-session", "/x", 190_000, "opus", "warn"))
+    assert (root / "latest.md").read_text() == COMPLETE
+    assert not store.is_complete((root / "new-session.md").read_text())
+
+
+def test_a_stub_with_placeholders_is_not_promoted(monkeypatch):
+    _fake_git(monkeypatch)
+    root = _checkpoints()
+    root.mkdir(parents=True)
+    (root / "latest.md").write_text(COMPLETE)
+    os.utime(root / "latest.md", (1, 1))  # older than any stub written below
+    guard._write_stub(guard.FireEvent("s1", "/x", 190_000, "opus", "warn"))
+    assert store.promote(str(root), "s1") is False
+    assert (root / "latest.md").read_text() == COMPLETE
+
+
+def test_a_filled_checkpoint_is_promoted_once_and_an_older_one_never_wins():
+    root = _checkpoints()
+    root.mkdir(parents=True)
+    (root / "a.md").write_text(COMPLETE + "session a\n")
+    os.utime(root / "a.md", (100, 100))
+    assert store.promote(str(root), "a") is True
+    assert (root / "latest.md").read_text().endswith("session a\n")
+    (root / "b.md").write_text(COMPLETE + "session b\n")
+    os.utime(root / "latest.md", (100, 100))
+    os.utime(root / "b.md", (200, 200))
+    assert store.promote(str(root), "b") is True
+    # Session a stops again with its checkpoint unchanged: b stays latest.
+    assert store.promote(str(root), "a") is False
+    assert (root / "latest.md").read_text().endswith("session b\n")
+    assert store.promote(str(root), "missing") is False
+
+
+def test_a_newer_checkpoint_written_before_an_older_promotion_still_wins():
+    """Both sessions fill their checkpoint before either reaches its next
+    Stop; A (older) is promoted first, then B (newer) must replace it."""
+    root = _checkpoints()
+    root.mkdir(parents=True)
+    (root / "a.md").write_text(COMPLETE + "session a\n")
+    os.utime(root / "a.md", (100, 100))
+    (root / "b.md").write_text(COMPLETE + "session b\n")
+    os.utime(root / "b.md", (200, 200))
+    assert store.promote(str(root), "a") is True
+    assert store.promote(str(root), "b") is True
+    assert (root / "latest.md").read_text().endswith("session b\n")
+    assert store.promote(str(root), "a") is False
+
+
+def test_a_promotion_waits_for_the_lock_and_rechecks_under_it(monkeypatch):
+    """Two sessions stopping at once: while B holds the promotion lock, A
+    neither writes nor decides; once B has promoted its newer checkpoint, A's
+    comparison runs against B's latest.md and A (older) is not promoted."""
+    root = _checkpoints()
+    root.mkdir(parents=True)
+    (root / "a.md").write_text(COMPLETE + "session a\n")
+    os.utime(root / "a.md", (100, 100))
+    (root / "b.md").write_text(COMPLETE + "session b\n")
+    os.utime(root / "b.md", (200, 200))
+    monkeypatch.setattr(store, "LOCK_WAIT_SECONDS", 0.2)
+    with store._promotion_lock(str(root)) as locked:
+        assert locked
+        assert store.promote(str(root), "a") is False  # lock busy: skipped
+        assert not (root / "latest.md").exists()
+        assert store._promote_locked(str(root), "b") is True
+    assert store.promote(str(root), "a") is False
+    assert (root / "latest.md").read_text().endswith("session b\n")
+
+
+def test_the_hard_fire_keeps_the_checkpoint_the_warn_fire_got_filled(monkeypatch):
+    _fake_git(monkeypatch)
+    root = _checkpoints()
+    ev = guard.FireEvent("s", "/x", 190_000, "opus", "warn")
+    path = Path(guard._write_stub(ev))
+    path.write_text(COMPLETE)
+    hard = guard.FireEvent("s", "/x", 205_000, "opus", "hard")
+    assert guard._write_stub(hard) == str(path)
+    assert path.read_text() == COMPLETE
+    # An unfilled stub from an earlier fire is refreshed, not kept.
+    path.write_text("stale <to be filled: x>")
+    guard._write_stub(hard)
+    assert "205,000" in path.read_text()
+    assert not (root / "latest.md").exists()
+
+
+def test_the_stop_ending_the_checkpoint_turn_promotes_it(tmp_path):
+    """The Stop that follows the model's checkpoint write is a forced
+    continuation (stop_hook_active): the hook still promotes on it, then stays
+    silent. Real subprocess, sandboxed HOME."""
+    home = tmp_path / "home"
+    root = home / ".claude" / "memories" / "checkpoints"
+    root.mkdir(parents=True)
+    (root / "sid.md").write_text(COMPLETE)
+    payload = {"session_id": "sid", "cwd": str(tmp_path), "stop_hook_active": True}
+    proc = subprocess.run(
+        [sys.executable, str(HOOKS / "stop-context-guard.py")],
+        check=False,
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env={**os.environ, "HOME": str(home)},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == ""
+    assert (root / "latest.md").read_text() == COMPLETE
+
+
+def test_tests_never_reach_the_real_checkpoints_folder():
+    assert Path(store.root()).parents[2] != REAL_HOME

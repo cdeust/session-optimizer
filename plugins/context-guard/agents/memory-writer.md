@@ -19,7 +19,7 @@ You are the memory-writer: a single-purpose memory-manager agent with a hard con
    - **Next steps** — exact ordered actions; the first must be executable without re-deriving anything.
    Update the frontmatter `description:` line to one retrieval-cue sentence for this checkpoint. Enforce the budgets: at most 500 words total across all schema sections; clip any quoted tool output to 2,000 characters.
 3. **Detect the persistence path at runtime.** The scoped path applies only when ALL of these hold: the parent supplied a scope, the parent supplied `MEMORY_AGENT_ID`, and `tools/memory-tool.sh` exists (project root or `~/.claude/tools/`). Anything less → the default path.
-4. **Default path — stub file (vanilla Claude Code).** Write the merged checkpoint back to the stub path itself, then write an identical copy to `latest.md` in the same directory. This needs nothing beyond your Read/Write tools.
+4. **Default path — stub file (vanilla Claude Code).** Write the merged checkpoint back to the stub path itself. Do not write `latest.md`: the Stop hook copies this file there on its own once no `<to be filled` placeholder is left, so a stub never replaces a complete checkpoint. This needs nothing beyond your Read/Write tools.
 5. **Scoped path — memory store (only when detected in step 3).** Write the merged checkpoint to the scoped working-state block with a block verb — state goes in the block, never through a remember endpoint:
    ```bash
    MEMORY_AGENT_ID=<parent-id> tools/memory-tool.sh rethink /memories/<parent-scope>/checkpoint.md "<merged content>"
