@@ -82,8 +82,10 @@ def promote(directory: str, session_id: str) -> bool:
     """Copy the session's checkpoint to `latest.md` when it is complete and
     newer than `latest.md`. Returns True when `latest.md` was rewritten.
 
-    The mtime comparison keeps a later checkpoint of another session from
-    being replaced by an older, unchanged one at this session's next Stop.
+    `latest.md` keeps the mtime of the checkpoint it copies, so the comparison
+    orders checkpoint writes: an older, unchanged checkpoint never replaces a
+    later one of another session, and a later one written before an older
+    one's promotion is still promoted at its own next Stop.
     Never raises: a Stop hook must not fail on a checkpoint it cannot read.
     """
     path = session_path(directory, session_id)
@@ -102,6 +104,10 @@ def promote(directory: str, session_id: str) -> bool:
         return False
     try:
         _write_atomic(latest, text)
+        # latest.md carries its source's mtime, not the promotion time: the
+        # comparison above must order checkpoint writes, so a newer checkpoint
+        # of another session written before this promotion still wins later.
+        os.utime(latest, (mtime, mtime))
     except OSError:
         return False
     return True

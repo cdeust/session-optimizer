@@ -951,6 +951,21 @@ def test_a_filled_checkpoint_is_promoted_once_and_an_older_one_never_wins():
     assert store.promote(str(root), "missing") is False
 
 
+def test_a_newer_checkpoint_written_before_an_older_promotion_still_wins():
+    """Both sessions fill their checkpoint before either reaches its next
+    Stop; A (older) is promoted first, then B (newer) must replace it."""
+    root = _checkpoints()
+    root.mkdir(parents=True)
+    (root / "a.md").write_text(COMPLETE + "session a\n")
+    os.utime(root / "a.md", (100, 100))
+    (root / "b.md").write_text(COMPLETE + "session b\n")
+    os.utime(root / "b.md", (200, 200))
+    assert store.promote(str(root), "a") is True
+    assert store.promote(str(root), "b") is True
+    assert (root / "latest.md").read_text().endswith("session b\n")
+    assert store.promote(str(root), "a") is False
+
+
 def test_the_hard_fire_keeps_the_checkpoint_the_warn_fire_got_filled(monkeypatch):
     _fake_git(monkeypatch)
     root = _checkpoints()
