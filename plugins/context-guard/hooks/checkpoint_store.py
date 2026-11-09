@@ -18,10 +18,22 @@ the checkpoint turn is the one that sees the filled file.
 
 import contextlib
 import os
+import time
 
 import checkpoint_stub
 
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
+
 LATEST = "latest.md"
+LOCK = "latest.md.lock"
+# Bounded wait for another session's promotion to finish, well under the Stop
+# hook's 10 s timeout (hooks.json). On expiry the promotion is skipped, not
+# forced: this session's next Stop tries again.
+LOCK_WAIT_SECONDS = 2.0
+LOCK_POLL_SECONDS = 0.05
 
 
 def root() -> str:
@@ -62,6 +74,44 @@ def _write_atomic(path: str, text: str) -> None:
         raise
 
 
+def _try_lock(handle) -> bool:
+    try:
+        if os.name == "nt":
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return False
+    return True
+
+
+def _unlock(handle) -> None:
+    if os.name == "nt":
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def _promotion_lock(directory: str):
+    """Hold the interprocess lock that serializes promotions; yields False
+    when it could not be taken within LOCK_WAIT_SECONDS. Raises OSError when
+    the lock file cannot be opened."""
+    with open(os.path.join(directory, LOCK), "a+", encoding="utf-8") as handle:
+        deadline = time.monotonic() + LOCK_WAIT_SECONDS
+        while not _try_lock(handle):
+            if time.monotonic() >= deadline:
+                yield False
+                return
+            time.sleep(LOCK_POLL_SECONDS)
+        try:
+            yield True
+        finally:
+            _unlock(handle)
+
+
 def write_stub(directory: str, session_id: str, stub: str) -> str:
     """Write `stub` to the session's checkpoint path and return that path.
 
@@ -86,8 +136,21 @@ def promote(directory: str, session_id: str) -> bool:
     orders checkpoint writes: an older, unchanged checkpoint never replaces a
     later one of another session, and a later one written before an older
     one's promotion is still promoted at its own next Stop.
+    Promotions of all sessions are serialized by an interprocess lock; a
+    promotion that cannot take it in LOCK_WAIT_SECONDS is skipped.
     Never raises: a Stop hook must not fail on a checkpoint it cannot read.
     """
+    try:
+        with _promotion_lock(directory) as locked:
+            return locked and _promote_locked(directory, session_id)
+    except OSError:
+        return False
+
+
+def _promote_locked(directory: str, session_id: str) -> bool:
+    """The read-compare-write of `promote`, run under the promotion lock so
+    two sessions stopping at once cannot both pass the comparison and let the
+    older checkpoint land last."""
     path = session_path(directory, session_id)
     latest = os.path.join(directory, LATEST)
     try:

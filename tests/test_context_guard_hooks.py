@@ -966,6 +966,26 @@ def test_a_newer_checkpoint_written_before_an_older_promotion_still_wins():
     assert store.promote(str(root), "a") is False
 
 
+def test_a_promotion_waits_for_the_lock_and_rechecks_under_it(monkeypatch):
+    """Two sessions stopping at once: while B holds the promotion lock, A
+    neither writes nor decides; once B has promoted its newer checkpoint, A's
+    comparison runs against B's latest.md and A (older) is not promoted."""
+    root = _checkpoints()
+    root.mkdir(parents=True)
+    (root / "a.md").write_text(COMPLETE + "session a\n")
+    os.utime(root / "a.md", (100, 100))
+    (root / "b.md").write_text(COMPLETE + "session b\n")
+    os.utime(root / "b.md", (200, 200))
+    monkeypatch.setattr(store, "LOCK_WAIT_SECONDS", 0.2)
+    with store._promotion_lock(str(root)) as locked:
+        assert locked
+        assert store.promote(str(root), "a") is False  # lock busy: skipped
+        assert not (root / "latest.md").exists()
+        assert store._promote_locked(str(root), "b") is True
+    assert store.promote(str(root), "a") is False
+    assert (root / "latest.md").read_text().endswith("session b\n")
+
+
 def test_the_hard_fire_keeps_the_checkpoint_the_warn_fire_got_filled(monkeypatch):
     _fake_git(monkeypatch)
     root = _checkpoints()
