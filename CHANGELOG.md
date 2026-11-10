@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The CI follows Cortex, the source of truth for the CI of the owner's repositories (owner direction 2026-11-09), re-rendered from zetetic-team-subagents (`render-ci`, zetetic-team-subagents #244). The Pipeline loses its `review` job (review, repair, auto-merge arming). `claude-review.yml` (`PR Review`) reviews each pull request at most three times (`scripts/ci_review_budget.py`) and ends with `Verdict: approve` or `Verdict: block`; the resolver merges a head whose Pipeline succeeded and whose latest verdict, bound to a review run of that head, approves, and closes the issues the merge closes. A Dependabot minor or patch update of `requirements-dev.in` and `requirements-dev.txt` alone, in one GitHub-signed commit, merges without a review. The review command and its five reviewers are delivered under `.claude/`.
+
 ### Removed
 
 - Pull requests run only the Pipeline workflow; the legacy CI, CodeQL, fuzz, identity and scanner workflows are removed; security is reviewed locally with the security-review skill.
