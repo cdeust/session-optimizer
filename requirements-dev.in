@@ -1,4 +1,4 @@
 # Direct test inputs are pinned so a new upstream release cannot change CI.
 coverage==7.16.2
 pytest==9.2.0
-ruff==0.17.3
+ruff==0.17.4
