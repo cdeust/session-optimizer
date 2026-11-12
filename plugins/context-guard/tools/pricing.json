@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-12, every row (USD per million tokens; cw5/cw1 = cache write 5m/1h, cr = cache read)",
+  "note": "One row per model version; each match regex names exactly one version. A model no row matches is unpriced (its tokens are not counted), never priced at a guess. Haiku 5.5 is absent: its rates depend on each prompt's size. This file is the one price table of the repository: plugins/context-guard/tools/pricing.json is a byte-for-byte copy, because each plugin installs on its own (CONTRIBUTING.md), and tests/test_statusline_pricing.py fails when the two differ. Edit this file, then copy it there.",
+  "models": [
+    {"version": "fable-5-2", "match": "(^|[^a-z0-9])fable-5-2(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 8, "out": 40, "cw5": 10, "cw1": 16, "cr": 0.2},
+    {"version": "mythos-5-2", "match": "(^|[^a-z0-9])mythos-5-2(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 8, "out": 40, "cw5": 10, "cw1": 16, "cr": 0.2},
+    {"version": "fable-5-1", "match": "(^|[^a-z0-9])fable-5-1(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 10, "out": 50, "cw5": 12.5, "cw1": 20, "cr": 0.25},
+    {"version": "mythos-5-1", "match": "(^|[^a-z0-9])mythos-5-1(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 10, "out": 50, "cw5": 12.5, "cw1": 20, "cr": 0.25},
+    {"version": "fable-5", "match": "(^|[^a-z0-9])fable-5(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 10, "out": 50, "cw5": 12.5, "cw1": 20, "cr": 1.0},
+    {"version": "mythos-5", "match": "(^|[^a-z0-9])mythos-5(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 10, "out": 50, "cw5": 12.5, "cw1": 20, "cr": 1.0},
+    {"version": "opus-5-5", "match": "(^|[^a-z0-9])opus-5-5(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 4, "out": 20, "cw5": 5, "cw1": 8, "cr": 0.2},
+    {"version": "opus-5", "match": "(^|[^a-z0-9])opus-5(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 5, "out": 25, "cw5": 6.25, "cw1": 10, "cr": 0.5},
+    {"version": "opus-4-8", "match": "(^|[^a-z0-9])opus-4-8(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 5, "out": 25, "cw5": 6.25, "cw1": 10, "cr": 0.5},
+    {"version": "opus-4-7", "match": "(^|[^a-z0-9])opus-4-7(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 5, "out": 25, "cw5": 6.25, "cw1": 10, "cr": 0.5},
+    {"version": "opus-4-6", "match": "(^|[^a-z0-9])opus-4-6(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 5, "out": 25, "cw5": 6.25, "cw1": 10, "cr": 0.5},
+    {"version": "opus-4-5", "match": "(^|[^a-z0-9])opus-4-5(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 5, "out": 25, "cw5": 6.25, "cw1": 10, "cr": 0.5},
+    {"version": "opus-4-1", "match": "(^|[^a-z0-9])opus-4-1(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 15, "out": 75, "cw5": 18.75, "cw1": 30, "cr": 1.5},
+    {"version": "opus-4", "match": "(^|[^a-z0-9])opus-4(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 15, "out": 75, "cw5": 18.75, "cw1": 30, "cr": 1.5},
+    {"version": "sonnet-5-5", "match": "(^|[^a-z0-9])sonnet-5-5(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 2, "out": 10, "cw5": 2.5, "cw1": 4, "cr": 0.1},
+    {"version": "sonnet-5", "match": "(^|[^a-z0-9])sonnet-5(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 2, "out": 10, "cw5": 2.5, "cw1": 4, "cr": 0.2},
+    {"version": "sonnet-4-6", "match": "(^|[^a-z0-9])sonnet-4-6(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 3, "out": 15, "cw5": 3.75, "cw1": 6, "cr": 0.3},
+    {"version": "sonnet-4-5", "match": "(^|[^a-z0-9])sonnet-4-5(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 3, "out": 15, "cw5": 3.75, "cw1": 6, "cr": 0.3},
+    {"version": "sonnet-4", "match": "(^|[^a-z0-9])sonnet-4(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 3, "out": 15, "cw5": 3.75, "cw1": 6, "cr": 0.3},
+    {"version": "haiku-4-5", "match": "(^|[^a-z0-9])haiku-4-5(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 1, "out": 5, "cw5": 1.25, "cw1": 2, "cr": 0.1}
+  ]
+}

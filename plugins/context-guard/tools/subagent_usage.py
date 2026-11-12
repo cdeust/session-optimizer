@@ -39,11 +39,16 @@ import sys
 from dataclasses import dataclass, field
 
 # --- Pricing ---------------------------------------------------------------
-# Per-million-token USD rates, one row per model version. Every rate is read
-# from the official table, not derived from a multiplier: the cache-read rate
-# is 0.10x input for most models but 0.05x for Opus 5.5 and Sonnet 5.5 and
-# 0.025x for Fable 5.1 and Mythos 5.1, so a shared multiplier misprices them.
-# source: https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-07
+# Per-million-token USD rates, one row per model version, read from
+# pricing.json beside this module. That file is a byte-for-byte copy of
+# plugins/statusline/assets/pricing.json, the repository's one price table
+# (session-optimizer #63): the statusline's jq pricer and this module apply the
+# same rows and the same match regexes. The copy exists because each plugin
+# installs on its own (CONTRIBUTING.md); a test fails when the two differ.
+# Every rate is read from the official table, not derived from a multiplier.
+# source: the "source" field of pricing.json (page and date read).
+
+_PRICING_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pricing.json")
 
 
 @dataclass(frozen=True)
@@ -61,46 +66,42 @@ class ModelPrice:
     cache_read_per_mtok: float
 
 
-def _version_rx(family_version):
-    """Regex matching one exact model version inside a model id.
+def _load_pricing(path):
+    """Return ((version, compiled match regex, ModelPrice), ...) from pricing.json.
 
-    The version must be followed by the end of the id, a `-YYYYMMDD` snapshot
-    date, or a non-version character (`[1m]`, `@`, `:`), so `opus-5` does not
-    match `claude-opus-5-5` and `opus-4-8` does not match `opus-4-80`.
+    Each row's `match` names exactly one version: the version must be followed
+    by the end of the id, a `-YYYYMMDD` snapshot date, or a non-version
+    character (`[1m]`, `@`, `:`), so `opus-5` does not match `claude-opus-5-5`.
+    A missing or malformed table raises ImportError: no price is better than a
+    guessed one, and the SubagentStop hook degrades to inert on ImportError.
     """
-    return re.compile(
-        r"(?:^|[^a-z0-9])" + re.escape(family_version) + r"(?=$|-\d{8}(?!\d)|[^-0-9])"
-    )
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            table = json.load(fh)
+        return tuple(
+            (
+                row["version"],
+                re.compile(row["match"]),
+                ModelPrice(
+                    float(row["ind"]),
+                    float(row["out"]),
+                    float(row["cw5"]),
+                    float(row["cw1"]),
+                    float(row["cr"]),
+                ),
+            )
+            for row in table["models"]
+        )
+    except (OSError, ValueError, KeyError, TypeError, re.error) as exc:
+        raise ImportError(
+            f"subagent_usage: unusable price table {path}: {exc}"
+        ) from exc
 
 
-# (model version, price). Order is irrelevant: each pattern matches one
-# version only. A model absent from this table is unpriced (price_for returns
-# None) rather than priced at a guess.
-# source: the pricing page cited above, for every row.
-_PRICE_ROWS = (
-    ("fable-5-1", ModelPrice(10.0, 50.0, 12.5, 20.0, 0.25)),
-    ("mythos-5-1", ModelPrice(10.0, 50.0, 12.5, 20.0, 0.25)),
-    ("fable-5", ModelPrice(10.0, 50.0, 12.5, 20.0, 1.0)),
-    ("mythos-5", ModelPrice(10.0, 50.0, 12.5, 20.0, 1.0)),
-    ("opus-5-5", ModelPrice(4.0, 20.0, 5.0, 8.0, 0.20)),
-    ("opus-5", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
-    ("opus-4-8", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
-    ("opus-4-7", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
-    ("opus-4-6", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
-    ("opus-4-5", ModelPrice(5.0, 25.0, 6.25, 10.0, 0.50)),
-    ("opus-4-1", ModelPrice(15.0, 75.0, 18.75, 30.0, 1.50)),
-    ("opus-4", ModelPrice(15.0, 75.0, 18.75, 30.0, 1.50)),
-    ("sonnet-5-5", ModelPrice(2.0, 10.0, 2.5, 4.0, 0.10)),
-    ("sonnet-5", ModelPrice(2.0, 10.0, 2.5, 4.0, 0.20)),
-    ("sonnet-4-6", ModelPrice(3.0, 15.0, 3.75, 6.0, 0.30)),
-    ("sonnet-4-5", ModelPrice(3.0, 15.0, 3.75, 6.0, 0.30)),
-    ("sonnet-4", ModelPrice(3.0, 15.0, 3.75, 6.0, 0.30)),
-    ("haiku-4-5", ModelPrice(1.0, 5.0, 1.25, 2.0, 0.10)),
-    # Haiku 5.5 is deliberately absent: its rates depend on the size of each
-    # prompt (up to / over 100,000 tokens), and this module prices a whole
-    # transcript's summed tokens, so any single rate would be a guess.
-)
-PRICING = tuple((_version_rx(v), price) for v, price in _PRICE_ROWS)
+# A model no row names (Haiku 5.5, whose rates depend on each prompt's size,
+# or a future version) is unpriced: price_for returns None.
+PRICE_ROWS = _load_pricing(_PRICING_FILE)
+PRICING = tuple((rx, price) for _version, rx, price in PRICE_ROWS)
 
 
 def price_for(model_id):

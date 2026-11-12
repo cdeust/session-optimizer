@@ -232,7 +232,9 @@ read $0.20) is not priced as Opus 5 ($5/$25) and Fable 5.1 (cache read $0.25)
 not as Fable 5 ($1). A model the table does not name, including Haiku 5.5
 whose rates depend on prompt size, is reported as unpriced (`cost_usd: null`,
 "cost unavailable") instead of priced at a guess. The table and its source
-line are in `tools/subagent_usage.py`.
+line are in `tools/pricing.json`, a byte-for-byte copy of the statusline's
+`assets/pricing.json`, the repository's one price table: both plugins apply
+the same rows, and a test fails when the copy differs.
 
 ### Retrospective report
 
