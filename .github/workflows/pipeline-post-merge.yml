@@ -763,7 +763,12 @@ jobs:
           VERSION_KEY = "version_file"
           DEFAULT_VERSION_FILE = ".claude-plugin/plugin.json"
           RELEASE_KEY = "release_packages"
-          ALLOWED_KEYS = KEYS + (VERSION_KEY, RELEASE_KEY)
+          # Accepted and not read yet: Cortex's workflows read them (ADR-1131,
+          # ADR-1133). A key enters ci.json after the validator that accepts it
+          # is on the main branch (Cortex ADR-1134, decision 4).
+          LOW_RISK_KEY = "low_risk_files"
+          DOCS_KEY = "docs_paths"
+          ALLOWED_KEYS = KEYS + (VERSION_KEY, RELEASE_KEY, LOW_RISK_KEY, DOCS_KEY)
           ALLOWED = ", ".join(ALLOWED_KEYS)
 
 
