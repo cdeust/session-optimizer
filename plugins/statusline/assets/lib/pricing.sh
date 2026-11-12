@@ -21,6 +21,10 @@ if [[ ! -f "$_PRICING" ]]; then
   echo "costs.sh: pricing.json not found (looked next to script and in ${STATUSLINE_DIR})" >&2; exit 1
 fi
 _MODELS=$(jq -c '.models | map({match, ind, out, cw5, cw1, cr})' "$_PRICING")
+# Fingerprint of the rows in force, part of every cache key below: a cost
+# cached under an earlier price table is re-priced, not served, once the table
+# changes (a new row, a corrected rate), even for a transcript that no longer grows.
+_PRICING_SIG=$(printf '%s' "$_MODELS" | cksum | awk '{print $1}')
 
 # Price a stream of Claude Code transcript lines (passed on stdin) from token
 # usage. Standard-tier $/Mtok per model version, resolved from the injected
@@ -115,6 +119,9 @@ cmd_price_sample() {
 #   * throttle : even when it IS changing, re-price at most once per
 #                  $3 seconds. Bounds a busy burst to one parse per window;
 #                  the displayed cost simply lags up to that delta.
+#   * table key: the key also carries $_PRICING_SIG, so a cost priced with an
+#                  earlier pricing.json is re-priced once the table changes; a
+#                  cache line written before the key had it never matches.
 #   * format   : a cache line without the fourth field was written before the
 #                  unpriced count existed; it is re-priced rather than read as
 #                  "0 unpriced", which it does not prove.
@@ -125,6 +132,7 @@ _price_cached() {
     local cache="$1" newest="$2" throttle="$3"; shift 3
     local price_fn="$1"; shift
     [[ -n "$newest" ]] || { echo "0 0"; return; }
+    newest="${newest}+${_PRICING_SIG}"
 
     local now; now=$(date +%s)
     if [[ -s "$cache" ]]; then

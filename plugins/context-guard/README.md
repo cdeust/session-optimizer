@@ -308,7 +308,7 @@ cp hooks/stop-context-guard.py hooks/checkpoint_protocol.py \
    hooks/thresholds.py hooks/transcript_codex.py hooks/transcript_lines.py \
    hooks/transcript_scan.py hooks/usage_reader.py hooks/subagent-tracker.py \
    hooks/subagent_codex.py ~/.claude/hooks/
-cp tools/subagent_usage.py ~/.claude/tools/
+cp tools/subagent_usage.py tools/pricing.json ~/.claude/tools/
 chmod +x ~/.claude/hooks/stop-context-guard.py
 cp agents/memory-writer.md ~/.claude/agents/memory-writer.md
 ```
@@ -319,7 +319,9 @@ cp agents/memory-writer.md ~/.claude/agents/memory-writer.md
 `transcript_scan.py`, `usage_reader.py`), plus `transcript_codex.py`
 transitively via `usage_reader.py`, copy all ten, they must stay together.
 `subagent-tracker.py` imports `subagent_codex.py` and the shared Claude
-core from the sibling `tools/` directory. Then register the `Stop` /
+core from the sibling `tools/` directory: `subagent_usage.py` and the price
+table it reads, `pricing.json`, which must sit beside it (without it the
+tracker records no subagent). Then register the `Stop` /
 `SubagentStop` entries (see
 `hooks/hooks.json`) in `~/.claude/settings.json`, pointing at the installed
 paths.

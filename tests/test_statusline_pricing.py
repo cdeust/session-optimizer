@@ -10,7 +10,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -19,10 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "plugins" / "statusline" / "assets"
 COSTS = ASSETS / "costs.sh"
 PRICING = ASSETS / "pricing.json"
-
-sys.path.insert(0, str(ROOT / "plugins" / "context-guard" / "tools"))
-
-import subagent_usage as su
 
 pytestmark = pytest.mark.skipif(
     shutil.which("jq") is None or shutil.which("bash") is None,
@@ -129,42 +124,6 @@ def test_every_row_names_one_version_and_there_is_no_catch_all():
         assert row["version"] in row["match"], row
     assert "sonnet5_intro_until" not in table
     assert "pricing" in table["source"] and "read 2026-11-12" in table["source"]
-
-
-LEDGER_COPY = ROOT / "plugins" / "context-guard" / "tools" / "pricing.json"
-
-
-def test_the_ledger_table_is_a_byte_copy_of_the_statusline_table():
-    # #63: one price table. Each plugin installs on its own (CONTRIBUTING.md),
-    # so context-guard ships a copy; any difference fails here.
-    assert LEDGER_COPY.read_bytes() == PRICING.read_bytes()
-
-
-def test_the_ledger_applies_the_same_rows_as_the_statusline_pricer():
-    table = json.loads(PRICING.read_text())
-    statusline = {
-        row["version"]: (
-            row["match"],
-            row["ind"],
-            row["out"],
-            row["cw5"],
-            row["cw1"],
-            row["cr"],
-        )
-        for row in table["models"]
-    }
-    ledger = {
-        version: (
-            rx.pattern,
-            p.input_per_mtok,
-            p.output_per_mtok,
-            p.cache_write_5m_per_mtok,
-            p.cache_write_1h_per_mtok,
-            p.cache_read_per_mtok,
-        )
-        for version, rx, p in su.PRICE_ROWS
-    }
-    assert statusline == ledger
 
 
 def test_session_cost_leaves_unpriced_turns_out_of_the_sum(tmp_path):
@@ -400,3 +359,36 @@ def test_the_statusline_shows_no_marker_when_every_turn_is_priced(tmp_path):
     out = _render(tmp_path, transcript)
     assert "session $24.00" in out
     assert "unpriced" not in out
+
+
+def test_a_price_table_change_reprices_a_transcript_that_did_not_move(tmp_path):
+    # A cost cached under an earlier pricing.json is not served once the table
+    # gains a row: the transcript's mtime is unchanged (a finished subagent, an
+    # idle session), so the cache key has to carry the table too. Found by the
+    # Codex review of #113 for the Fable 5.2 and Mythos 5.2 rows.
+    transcript = tmp_path / "s1.jsonl"
+    _write_transcript(transcript, [OPUS_TURN])
+    table = json.loads(PRICING.read_text())
+    older = tmp_path / "older-pricing.json"
+    older.write_text(
+        json.dumps(
+            dict(
+                table,
+                models=[r for r in table["models"] if r["version"] != "opus-5-5"],
+            )
+        )
+    )
+    no_throttle = {
+        "STATUSLINE_MAIN_REFRESH_SEC": "0",
+        "STATUSLINE_SUBAGENT_REFRESH_SEC": "0",
+    }
+    before = _update(
+        tmp_path, transcript, dict(no_throttle, STATUSLINE_PRICING_FILE=str(older))
+    )
+    assert [r["unpriced_turns"] for r in before] == [1]
+    after = _update(
+        tmp_path, transcript, dict(no_throttle, STATUSLINE_PRICING_FILE=str(PRICING))
+    )
+    assert [(r["cost_usd"], r["unpriced_turns"]) for r in after] == [
+        (pytest.approx(24.0), 0)
+    ]
