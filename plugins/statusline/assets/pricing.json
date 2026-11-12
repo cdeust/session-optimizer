@@ -1,7 +1,7 @@
 {
   "schema": 2,
   "source": "https://platform.claude.com/docs/en/about-claude/pricing, read 2026-11-12, every row (USD per million tokens; cw5/cw1 = cache write 5m/1h, cr = cache read)",
-  "note": "One row per model version; each match regex names exactly one version. A model no row matches is unpriced (its tokens are not counted), never priced at a guess. Haiku 5.5 is absent: its rates depend on each prompt's size. This file is the one price table of the repository: plugins/context-guard/tools/pricing.json is a byte-for-byte copy, because each plugin installs on its own (CONTRIBUTING.md), and tests/test_statusline_pricing.py fails when the two differ. Edit this file, then copy it there.",
+  "note": "One row per model version; each match regex names exactly one version. A model no row matches is unpriced (its tokens are not counted), never priced at a guess. Haiku 5.5 is absent: its rates depend on each prompt's size. plugins/statusline/assets/pricing.json is the one price table of the repository; plugins/context-guard/tools/pricing.json is a byte-for-byte copy of it, because each plugin installs on its own (CONTRIBUTING.md), and tests/test_subagent_usage.py fails when the two differ. Edit the statusline file, then copy it to context-guard.",
   "models": [
     {"version": "fable-5-2", "match": "(^|[^a-z0-9])fable-5-2(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 8, "out": 40, "cw5": 10, "cw1": 16, "cr": 0.2},
     {"version": "mythos-5-2", "match": "(^|[^a-z0-9])mythos-5-2(?=$|-[0-9]{8}(?![0-9])|[^-0-9])", "ind": 8, "out": 40, "cw5": 10, "cw1": 16, "cr": 0.2},

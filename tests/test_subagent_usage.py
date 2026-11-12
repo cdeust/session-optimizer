@@ -458,3 +458,47 @@ def test_build_report_marks_a_total_with_an_unpriced_run_as_unpriced(
     su._print_table(report)
     out = capsys.readouterr().out
     assert "unpriced" in out and "$    4.00" in out
+
+
+# The byte-copy and same-rows guards of #63 live here, not beside the jq
+# pricer tests: neither needs jq, and they must run where jq is absent.
+_ROOT = os.path.join(os.path.dirname(__file__), "..")
+_STATUSLINE_TABLE = os.path.join(
+    _ROOT, "plugins", "statusline", "assets", "pricing.json"
+)
+_LEDGER_TABLE = os.path.join(_ROOT, "plugins", "context-guard", "tools", "pricing.json")
+
+
+def test_the_ledger_table_is_a_byte_copy_of_the_statusline_table():
+    # One price table. Each plugin installs on its own (CONTRIBUTING.md), so
+    # context-guard ships a copy; any difference fails here.
+    with open(_STATUSLINE_TABLE, "rb") as a, open(_LEDGER_TABLE, "rb") as b:
+        assert b.read() == a.read()
+
+
+def test_the_ledger_applies_the_same_rows_as_the_statusline_pricer():
+    with open(_STATUSLINE_TABLE, encoding="utf-8") as fh:
+        table = json.load(fh)
+    statusline = {
+        row["version"]: (
+            row["match"],
+            row["ind"],
+            row["out"],
+            row["cw5"],
+            row["cw1"],
+            row["cr"],
+        )
+        for row in table["models"]
+    }
+    ledger = {
+        version: (
+            rx.pattern,
+            p.input_per_mtok,
+            p.output_per_mtok,
+            p.cache_write_5m_per_mtok,
+            p.cache_write_1h_per_mtok,
+            p.cache_read_per_mtok,
+        )
+        for version, rx, p in su.PRICE_ROWS
+    }
+    assert statusline == ledger
