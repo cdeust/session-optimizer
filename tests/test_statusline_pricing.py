@@ -81,10 +81,12 @@ def _rates(tmp_path, model):
 
 
 # Rates read from https://platform.claude.com/docs/en/about-claude/pricing on
-# 2026-11-07: (input, output, 5m write, 1h write, cache read) per MTok.
+# 2026-11-12: (input, output, 5m write, 1h write, cache read) per MTok.
 @pytest.mark.parametrize(
     "model_id, rates",
     [
+        ("claude-fable-5-2", (8, 40, 10, 16, 0.2)),
+        ("claude-mythos-5-2", (8, 40, 10, 16, 0.2)),
         ("claude-opus-5-5", (4, 20, 5, 8, 0.2)),
         ("claude-opus-5-5[1m]", (4, 20, 5, 8, 0.2)),
         ("claude-sonnet-5-5", (2, 10, 2.5, 4, 0.1)),
@@ -126,26 +128,41 @@ def test_every_row_names_one_version_and_there_is_no_catch_all():
         assert row["match"], row
         assert row["version"] in row["match"], row
     assert "sonnet5_intro_until" not in table
-    assert "pricing" in table["source"] and "read 2026-11-07" in table["source"]
+    assert "pricing" in table["source"] and "read 2026-11-12" in table["source"]
 
 
-def test_statusline_table_matches_the_subagent_ledger_table():
-    # Two copies until the single-source decision of #63 is taken; this keeps
-    # them from drifting apart again.
+LEDGER_COPY = ROOT / "plugins" / "context-guard" / "tools" / "pricing.json"
+
+
+def test_the_ledger_table_is_a_byte_copy_of_the_statusline_table():
+    # #63: one price table. Each plugin installs on its own (CONTRIBUTING.md),
+    # so context-guard ships a copy; any difference fails here.
+    assert LEDGER_COPY.read_bytes() == PRICING.read_bytes()
+
+
+def test_the_ledger_applies_the_same_rows_as_the_statusline_pricer():
     table = json.loads(PRICING.read_text())
     statusline = {
-        row["version"]: (row["ind"], row["out"], row["cw5"], row["cw1"], row["cr"])
+        row["version"]: (
+            row["match"],
+            row["ind"],
+            row["out"],
+            row["cw5"],
+            row["cw1"],
+            row["cr"],
+        )
         for row in table["models"]
     }
     ledger = {
         version: (
+            rx.pattern,
             p.input_per_mtok,
             p.output_per_mtok,
             p.cache_write_5m_per_mtok,
             p.cache_write_1h_per_mtok,
             p.cache_read_per_mtok,
         )
-        for version, p in su._PRICE_ROWS
+        for version, rx, p in su.PRICE_ROWS
     }
     assert statusline == ledger
 
@@ -312,7 +329,9 @@ def test_unpriced_subagent_turns_are_counted_with_the_main_thread(tmp_path):
     _write_transcript(transcript, [OPUS_TURN, HAIKU_TURN])
     sub = tmp_path / "s1" / "subagents"
     sub.mkdir(parents=True)
-    other = dict(HAIKU_TURN, requestId="r9", message=dict(HAIKU_TURN["message"], id="m9"))
+    other = dict(
+        HAIKU_TURN, requestId="r9", message=dict(HAIKU_TURN["message"], id="m9")
+    )
     _write_transcript(sub / "agent-1.jsonl", [other])
     rows = _update(tmp_path, transcript)
     assert [r["unpriced_turns"] for r in rows] == [2]
@@ -325,7 +344,9 @@ def test_a_new_unpriced_turn_rewrites_a_row_whose_cost_did_not_move(tmp_path):
         "STATUSLINE_MAIN_REFRESH_SEC": "0",
         "STATUSLINE_SUBAGENT_REFRESH_SEC": "0",
     }
-    assert [r["unpriced_turns"] for r in _update(tmp_path, transcript, no_throttle)] == [0]
+    assert [
+        r["unpriced_turns"] for r in _update(tmp_path, transcript, no_throttle)
+    ] == [0]
     _write_transcript(transcript, [OPUS_TURN, HAIKU_TURN])
     # Force a new mtime key: transcripts are re-priced on an mtime change.
     stat = transcript.stat()

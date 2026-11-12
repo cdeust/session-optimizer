@@ -34,10 +34,12 @@ def _assistant(msg_id, model, usage, tool_uses=0):
 
 
 # Rates read from https://platform.claude.com/docs/en/about-claude/pricing on
-# 2026-11-07: (input, output, 5m write, 1h write, cache read) per MTok.
+# 2026-11-12: (input, output, 5m write, 1h write, cache read) per MTok.
 @pytest.mark.parametrize(
     "model_id, rates",
     [
+        ("claude-fable-5-2", (8.0, 40.0, 10.0, 16.0, 0.20)),
+        ("claude-mythos-5-2", (8.0, 40.0, 10.0, 16.0, 0.20)),
         ("claude-fable-5-1", (10.0, 50.0, 12.5, 20.0, 0.25)),
         ("claude-opus-5-5", (4.0, 20.0, 5.0, 8.0, 0.20)),
         ("claude-sonnet-5-5", (2.0, 10.0, 2.5, 4.0, 0.10)),
@@ -69,6 +71,7 @@ def test_price_for_tells_a_version_from_its_successor():
     assert su.price_for("claude-opus-5").input_per_mtok == 5.0
     assert su.price_for("claude-fable-5-1").cache_read_per_mtok == 0.25
     assert su.price_for("claude-fable-5").cache_read_per_mtok == 1.0
+    assert su.price_for("claude-fable-5-2").input_per_mtok == 8.0
 
 
 def test_price_for_accepts_snapshot_date_and_context_suffix():
@@ -92,6 +95,33 @@ def test_price_for_accepts_snapshot_date_and_context_suffix():
 )
 def test_price_for_unknown_model_is_unpriced(model_id):
     assert su.price_for(model_id) is None
+
+
+def test_ledger_prices_from_the_shipped_pricing_json():
+    # #63: the ledger carries no table of its own; it reads pricing.json.
+    path = os.path.join(os.path.dirname(su.__file__), "pricing.json")
+    with open(path, encoding="utf-8") as fh:
+        table = json.load(fh)
+    assert [v for v, _rx, _p in su.PRICE_ROWS] == [
+        r["version"] for r in table["models"]
+    ]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        None,
+        "not json",
+        '{"models": [{"version": "x"}]}',
+        '{"models": [{"version": "x", "match": "(", "ind": 1, "out": 1, "cw5": 1, "cw1": 1, "cr": 1}]}',
+    ],
+)
+def test_an_unusable_price_table_is_an_import_error_not_a_guess(tmp_path, content):
+    path = tmp_path / "pricing.json"
+    if content is not None:
+        path.write_text(content)
+    with pytest.raises(ImportError):
+        su._load_pricing(str(path))
 
 
 def test_cost_of_an_unpriced_model_is_none_not_a_guess():
