@@ -62,6 +62,7 @@ jobs:
 
           from __future__ import annotations
 
+          import base64
           import json
           import os
           from pathlib import Path
@@ -160,26 +161,37 @@ jobs:
               full_sha(run.get("head_sha"))
 
 
+          # source: the matrix of the environment and install jobs of pipeline.yml.
+          RUNNERS = ("ubuntu-latest", "macos-latest", "windows-latest")
+
+
           def _validate_jobs(jobs):
               # Owner rule 2026-10-29: the required jobs are the tests and their
               # aggregate `merge`; the Claude verdict is read by
               # _review_approves. Overall success alone accepts skipped jobs.
+              # ADR-1133: environment and install ran on the three systems, or both on
+              # Linux alone. True is returned for Linux alone: resolve() then requires a
+              # documentation-only pull request.
               required = ["contract", "unit", "regression", "e2e", "merge"]
+              shapes = set()
               for category in ("environment", "install"):
-                  expected = {
-                      f"{category} ({runner})"
-                      for runner in ("ubuntu-latest", "macos-latest", "windows-latest")
-                  }
+                  full = {f"{category} ({runner})" for runner in RUNNERS}
+                  linux = {f"{category} ({RUNNERS[0]})"}
                   actual = [
                       job.get("name", "")
                       for job in jobs
                       if job.get("name", "").startswith(category + " (")
                   ]
                   require(
-                      len(actual) == len(expected) and set(actual) == expected,
+                      len(actual) == len(set(actual)) and set(actual) in (full, linux),
                       f"source merge gate requires the exact {category} matrix",
                   )
-                  required.extend(sorted(expected))
+                  shapes.add(len(actual))
+                  required.extend(sorted(actual))
+              require(
+                  len(shapes) == 1,
+                  "source merge gate requires the same environment and install matrices",
+              )
               for name in required:
                   matching = [job for job in jobs if job.get("name") == name]
                   require(
@@ -191,6 +203,7 @@ jobs:
                       job.get("status") == "completed" and allowed,
                       f"source merge gate requires completed {name}",
                   )
+              return shapes == {1}
 
 
           def _pr_identity(pr, repository, head):
@@ -295,7 +308,7 @@ jobs:
               jobs = _effective_jobs(
                   api.records(f"{prefix}/actions/runs/{run['id']}/jobs?filter=all", "jobs"), run
               )
-              _validate_jobs(jobs)
+              run["reduced_matrix"] = _validate_jobs(jobs)
               return run
 
 
@@ -398,22 +411,48 @@ jobs:
               require(max(verdicts)[1] == "approve", "merge held: Claude review verdict is block")
 
 
-          # Files a low-risk dependency update may touch (ADR-1126). Anything else, a
-          # workflow file first of all, keeps the PR on the reviewed path.
-          # source: the dependency manifests and locks of the ecosystems the consumers
-          # declare in .github/dependabot.yml (uv, npm, pnpm, cargo), matched by file
-          # name because each package carries its own manifest. requirements-dev.in/.txt
-          # is session-optimizer's uv-compiled pair (its dependabot.yml, uv ecosystem).
-          LOW_RISK_FILES = frozenset({
-              "uv.lock", "pyproject.toml", "package-lock.json", "pnpm-lock.yaml",
-              "package.json", "Cargo.lock", "Cargo.toml",
-              "requirements-dev.in", "requirements-dev.txt",
-          })
+          # The ci.json key that names the files a low-risk dependency update may touch
+          # (ADR-1126): the manifests and locks of the ecosystems the repository
+          # declares in .github/dependabot.yml. The names differ per repository, so
+          # they live in ci.json and not in this file (ADR-1131).
+          # source: the contract step's validator below, LOW_RISK_KEY.
+          LOW_RISK_KEY = "low_risk_files"
           # source: the `update-type` values Dependabot writes in its commit message,
           # https://github.com/dependabot/fetch-metadata#outputs
           LOW_RISK_UPDATES = frozenset(
               {"version-update:semver-minor", "version-update:semver-patch"}
           )
+
+
+          def _low_risk_files(repository, api):
+              """The file names ci.json lists under `low_risk_files`, or a failure.
+
+              Read from the default branch, which no pull request can change before it
+              is merged. A missing file, a missing key or a malformed list fails the
+              resolver: no built-in list stands in for it.
+              source: https://docs.github.com/en/rest/repos/contents#get-repository-content
+              (no `ref`: the default branch; a file's content is base64).
+              """
+              document = api.request("GET", f"/repos/{repository}/contents/ci.json")
+              require(
+                  isinstance(document, dict) and document.get("encoding") == "base64",
+                  "ci.json: not a file on the default branch",
+              )
+              try:
+                  data = json.loads(base64.b64decode(document.get("content") or ""))
+              except ValueError as exc:
+                  raise PostMergeError("ci.json: not valid JSON") from exc
+              require(
+                  isinstance(data, dict) and LOW_RISK_KEY in data,
+                  f"ci.json: {LOW_RISK_KEY}: missing",
+              )
+              names = data[LOW_RISK_KEY]
+              require(
+                  isinstance(names, list)
+                  and all(isinstance(name, str) and name and "/" not in name for name in names),
+                  f"ci.json: {LOW_RISK_KEY}: must be a list of file names",
+              )
+              return frozenset(names)
 
 
           def _declared_updates(commit):
@@ -442,12 +481,14 @@ jobs:
 
               The tier comes from the change, not from a label or a title (ADR-1126): the
               PR is Dependabot's single commit (committed and signed by GitHub), every
-              update it declares is minor or patch, and it touches nothing outside
-              LOW_RISK_FILES. Such a PR merges on green required checks without a review.
+              update it declares is minor or patch, and every file it touches is named
+              in ci.json's `low_risk_files` and lies outside `.github/`. Such a PR merges
+              on green required checks without a review.
               """
               user = pr.get("user") or {}
               if user.get("login") != "dependabot[bot]" or user.get("type") != "Bot":
                   return False
+              allowed = _low_risk_files(repository, api)
               path = f"/repos/{repository}/pulls/{pr['number']}"
               commits = list(api.records(path + "/commits"))
               # Dependabot opens and rebases a PR as one commit; a second one is
@@ -461,11 +502,83 @@ jobs:
               for row in api.records(path + "/files"):
                   # A rename counts under both of its names.
                   files |= {row.get("filename"), row.get("previous_filename")} - {None}
-              names = {name.rsplit("/", 1)[-1] for name in files}
               # A workflow or action directory never holds a dependency manifest.
               if any(name.startswith(".github/") for name in files):
                   return False
-              return bool(files) and names <= LOW_RISK_FILES
+              # By file name: a workspace carries one manifest per package.
+              names = {name.rsplit("/", 1)[-1] for name in files}
+              return bool(files) and names <= allowed
+
+
+          # The ci.json key that names the documentation paths (ADR-1133).
+          # source: the contract step's validator below, DOCS_KEY.
+          DOCS_KEY = "docs_paths"
+          # source: https://docs.github.com/en/rest/pulls/pulls#list-pull-requests-files
+          FILES_LISTED_AT_MOST = 3000
+
+          def documentation_only(paths, docs):
+              """True when ``paths`` is not empty and each lies under an entry of ``docs``
+              (an entry ending in "/" is a directory, any other names one file) and has a
+              name Windows can hold: one it cannot would fail only there, after the merge.
+              source: https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file"""
+              devices = {"CON", "PRN", "AUX", "NUL"}
+              devices |= {f"{port}{digit}" for port in ("COM", "LPT") for digit in "123456789"}
+
+              def portable(part):
+                  return (
+                      part == part.rstrip(" .")
+                      and not any(char in '<>:"|?*\\' or ord(char) < 32 for char in part)
+                      and part.split(".")[0].upper() not in devices
+                  )
+
+              return bool(paths) and all(
+                  all(portable(part) for part in path.split("/"))
+                  and any(path.startswith(entry) if entry.endswith("/") else path == entry for entry in docs)
+                  for path in paths
+              )
+
+
+          def _docs_paths(repository, api):
+              """The paths ci.json lists under `docs_paths` on the default branch, which no
+              pull request can change before it is merged. A missing key is an empty
+              list: no pull request is documentation only."""
+              document = api.request("GET", f"/repos/{repository}/contents/ci.json")
+              require(
+                  isinstance(document, dict) and document.get("encoding") == "base64",
+                  "ci.json: not a file on the default branch",
+              )
+              try:
+                  data = json.loads(base64.b64decode(document.get("content") or ""))
+              except ValueError as exc:
+                  raise PostMergeError("ci.json: not valid JSON") from exc
+              paths = data.get(DOCS_KEY, []) if isinstance(data, dict) else None
+              require(
+                  isinstance(paths, list)
+                  and all(
+                      isinstance(path, str)
+                      and path
+                      and path != "ci.json"
+                      and not path.startswith(("/", "."))
+                      and ".." not in path.split("/")
+                      for path in paths
+                  ),
+                  f"ci.json: {DOCS_KEY}: must be a list of paths inside the repository",
+              )
+              return paths
+
+
+          def _documentation_only(pr, repository, api):
+              """True when every path the pull request touches lies under ci.json's
+              `docs_paths` (ADR-1133). A rename counts under both of its names."""
+              paths = []
+              for row in api.records(f"/repos/{repository}/pulls/{pr['number']}/files"):
+                  names = [row.get("filename"), row.get("previous_filename")]
+                  if not names[0] or not all(isinstance(name, (str, type(None))) for name in names):
+                      return False
+                  paths += [name for name in names if name]
+              return len(paths) < FILES_LISTED_AT_MOST and documentation_only(
+                  paths, _docs_paths(repository, api)
+              )
 
 
           def _merge_open_pr(pr, merge_path, head, api, repository):
@@ -510,6 +623,12 @@ jobs:
           def resolve(event, repository: str, api: GitHub):
               run = _source_run(event, repository, api)
               number, pr = _pull_request(run, repository, api)
+              if run.get("reduced_matrix"):
+                  require(
+                      _documentation_only(pr, repository, api),
+                      "source merge gate requires the three systems: "
+                      "the pull request is not documentation only",
+                  )
               pr_path = f"/repos/{repository}/pulls/{number}"
               already_merged = pr.get("merged") is True
               if already_merged:
@@ -540,6 +659,13 @@ jobs:
               }
 
 
+          # A merge that waits is not a failure of main: the review or the Pipeline of
+          # this head is not there yet, or a newer head has its own run. The run that
+          # brings the missing part wakes the resolver again (ADR-1127), so these end
+          # green with a notice instead of a red run on the default branch (ADR-1128).
+          WAITING = ("merge held:", "PR head advanced after testing")
+
+
           def main():
               try:
                   require(
@@ -561,8 +687,14 @@ jobs:
                       f"PR #{result['pr_number']}: {result['reason']}; SHA {result['tested_sha']}"
                   )
                   return 0
+              except PostMergeError as exc:
+                  if str(exc).startswith(WAITING):
+                      # No output is written: no downstream job runs, the run is green.
+                      print(f"::notice title=Merge not made::{exc}")
+                      return 0
+                  print(f"post-merge: {exc}", file=sys.stderr)
+                  return 1
               except (
-                  PostMergeError,
                   OSError,
                   ValueError,
                   KeyError,
@@ -587,6 +719,7 @@ jobs:
     if: >-
       !cancelled() && github.event_name == 'workflow_run'
       && needs.resolve.result == 'success'
+      && needs.resolve.outputs.pr_number != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5 # source: operational cap; a few API calls per merged PR.
     permissions:
@@ -692,8 +825,9 @@ jobs:
           CLOSE
 
   # ci.json first: a missing key or an empty command fails here, before any
-  # test runs (design, "Repository contract: ci.json"). The validator is
-  # tools/ci_contract.py of zetetic-team-subagents, embedded byte for byte.
+  # test runs (design, "Repository contract: ci.json"). The validator began as
+  # tools/ci_contract.py of zetetic-team-subagents; `low_risk_files` was added
+  # here (ADR-1131).
   contract:
     needs: resolve
     if: >-
@@ -722,6 +856,8 @@ jobs:
           test "$actual" = "$EXPECTED_SHA"
           echo "tested_sha=$actual" >> "$GITHUB_OUTPUT"
 
+      - name: Guard - no comparison against main (owner rule 2026-10-29)
+        run: python3 -m unittest discover -s scripts/tests -p test_no_main_comparison.py -v
 
       - name: Validate ci.json
         id: commands
@@ -734,8 +870,13 @@ jobs:
           contract: ci.json"): exactly the keys ``unit``, ``regression``, ``e2e``,
           ``environment`` and ``install``, each a non-empty shell command, plus an
           optional ``version_file`` (default ``.claude-plugin/plugin.json``), or exclusive
-          ``release_packages`` entries with version_file and tag_prefix. Every manifest
-          version and tag ref is validated before exporting commands or release tags.
+          ``release_packages`` entries with version_file and tag_prefix, plus the
+          required ``low_risk_files``: the file names (no directory) a low-risk
+          dependency update may touch, read by the merge resolver, and the optional
+          ``docs_paths``: the directories (ending in ``/``) and the files whose change
+          alone lets a pull request run ``environment`` and ``install`` on Linux only
+          (ADR-1133). Every manifest version and tag ref is validated before exporting
+          commands or release tags.
           A missing file, a missing key or an empty command fails the pipeline here, so a step that
           has nothing to run never passes (the design's first anti-goal).
 
@@ -763,9 +904,6 @@ jobs:
           VERSION_KEY = "version_file"
           DEFAULT_VERSION_FILE = ".claude-plugin/plugin.json"
           RELEASE_KEY = "release_packages"
-          # Accepted and not read yet: Cortex's workflows read them (ADR-1131,
-          # ADR-1133). A key enters ci.json after the validator that accepts it
-          # is on the main branch (Cortex ADR-1134, decision 4).
           LOW_RISK_KEY = "low_risk_files"
           DOCS_KEY = "docs_paths"
           ALLOWED_KEYS = KEYS + (VERSION_KEY, RELEASE_KEY, LOW_RISK_KEY, DOCS_KEY)
@@ -895,6 +1033,35 @@ jobs:
               return []
 
 
+          def _low_risk_faults(data: dict) -> List[str]:
+              """An empty list is valid: no dependency update skips the review."""
+              if LOW_RISK_KEY not in data:
+                  return [f"{LOW_RISK_KEY}: missing"]
+              names = data[LOW_RISK_KEY]
+              if not isinstance(names, list) or not all(
+                  isinstance(name, str) and name and "/" not in name for name in names
+              ):
+                  return [f"{LOW_RISK_KEY}: must be a list of file names"]
+              return []
+
+
+          def _docs_paths_faults(data: dict) -> List[str]:
+              """Optional. Each entry is a directory ending in "/" or one file, inside the
+              repository and outside its dot-directories; ci.json is never one."""
+              paths = data.get(DOCS_KEY, [])
+              if not isinstance(paths, list) or not all(
+                  isinstance(path, str)
+                  and path
+                  and path == path.strip()
+                  and path != "ci.json"
+                  and not path.startswith(("/", "."))
+                  and ".." not in path.split("/")
+                  for path in paths
+              ):
+                  return [f"{DOCS_KEY}: must be a list of paths inside the repository"]
+              return []
+
+
           def faults(root: Path) -> List[str]:
               """Every fault of ``root/ci.json``, in key order then unknown keys; empty
               when the file honours the contract."""
@@ -914,6 +1081,8 @@ jobs:
                   for key in data
                   if key not in ALLOWED_KEYS
               )
+              found.extend(_low_risk_faults(data))
+              found.extend(_docs_paths_faults(data))
               found.extend(_version_faults(data, root))
               return found
 
@@ -1168,7 +1337,10 @@ jobs:
           ref: ${{ needs.contract.outputs.tested_sha }}
 
       - name: Install the Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.306
+        # source: https://docs.npmjs.com/cli/v11/commands/npm-ci
+        run: |
+          npm ci --prefix "$GITHUB_WORKSPACE/.github/claude-cli"
+          echo "$GITHUB_WORKSPACE/.github/claude-cli/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Scratch directory and OS name
         run: |
@@ -1201,7 +1373,10 @@ jobs:
           ref: ${{ needs.contract.outputs.tested_sha }}
 
       - name: Install the Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code@2.1.306
+        # source: https://docs.npmjs.com/cli/v11/commands/npm-ci
+        run: |
+          npm ci --prefix "$GITHUB_WORKSPACE/.github/claude-cli"
+          echo "$GITHUB_WORKSPACE/.github/claude-cli/node_modules/.bin" >> "$GITHUB_PATH"
 
       - name: Scratch directory and OS name
         run: |
@@ -1219,12 +1394,8 @@ jobs:
           CLAUDE_CONFIG_DIR: ${{ env.CI_WORK }}/claude
         run: bash -eo pipefail -c "$CI_COMMAND"
 
-  # The bot (design, "The bot step"): runs whether install passed or failed,
-  # on same-repo, non-draft pull requests. Dependabot remains out of scope.
-  # Claude commits skip duplicate review, but failing tests still need repair.
-  # Owner-authored workflow PRs are repairable; other workflow PRs keep bootstrap isolation.
-  # Cancellation stops mutation; ordinary failed tests still reach repair.
   tag:
+    # Publish only after all five categories pass on the actual merge commit.
     needs: [contract, unit, regression, e2e, environment, install]
     if: >-
       !cancelled()

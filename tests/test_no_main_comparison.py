@@ -5,8 +5,9 @@ hash, the tip or the content of main; behaviour is observed instead. The check
 that compared the pipeline.yml executed by a pull request with the one on main
 (and refused the autonomous merge with "workflow proof definition is not
 trusted") was removed. Any reintroduction under one of the markers below, in
-.github/workflows/, scripts/, tools/ or hooks/, fails this test. This file is
-excluded from its own scan.
+.github/workflows/, scripts/, tools/ or hooks/, fails this test. A file of this
+guard's name is excluded from the scan: this one, and Cortex's guard of the same
+rule in scripts/tests/, which the `contract` job runs and which lists the markers.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ def _candidate_files(base: Path, skip: Path | None):
     for path in sorted(base.rglob("*")):
         if not path.is_file() or SKIP_DIRS & set(path.parts):
             continue
-        if skip is not None and path.resolve() == skip:
+        if skip is not None and path.name == skip.name:
             continue
         yield path
 
@@ -80,3 +81,11 @@ def test_guard_detects_every_forbidden_marker(tmp_path):
         (workflows / f"w{index}.yml").write_text(f"run: {marker}\n", encoding="utf-8")
     hits = find_violations(tmp_path, skip=None)
     assert len(hits) == len(FORBIDDEN), hits
+
+
+def test_only_a_file_of_the_guard_s_name_is_skipped(tmp_path):
+    scripts = tmp_path / "scripts" / "tests"
+    scripts.mkdir(parents=True)
+    (scripts / SELF.name).write_text("update-branch\n", encoding="utf-8")
+    (scripts / "other.py").write_text("update-branch\n", encoding="utf-8")
+    assert find_violations(tmp_path) == ["scripts/tests/other.py:1: update-branch"]
