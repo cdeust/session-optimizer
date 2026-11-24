@@ -16,6 +16,7 @@ from cleanup_hooks import acting_owner, evidence_owner, hook_result, pushed
 from cleanup_operations import (
     create_temp,
     dispose,
+    migrate_pr_branch,
     owned,
     preserve,
     register_worktree,
@@ -35,7 +36,9 @@ def parse_args():
             / "disk-hygiene/worktree-cleanup.json"
         ),
     )
-    parser.add_argument("--host", required=True, choices=["claude", "codex"])
+    parser.add_argument(
+        "--host", required=True, choices=["claude", "codex", "antigravity"]
+    )
     parser.add_argument("--session")
     sub = parser.add_subparsers(dest="command", required=True)
     reg = sub.add_parser("register-worktree")
@@ -45,6 +48,11 @@ def parse_args():
     link = sub.add_parser("link-pr")
     link.add_argument("--path", required=True)
     link.add_argument("--pr", required=True)
+    migrate = sub.add_parser("migrate-pr-branch")
+    migrate.add_argument("--path", required=True)
+    migrate.add_argument("--pr", required=True)
+    migrate.add_argument("--pr-branch", required=True)
+    migrate.add_argument("--dry-run", action="store_true")
     temp = sub.add_parser("create-temp")
     temp.add_argument("--parent", required=True)
     evidence = sub.add_parser("evidence-preserved")
@@ -75,8 +83,12 @@ def execute(state, owner, args, payload):
         if record["kind"] != "worktree":
             raise Protected("only worktrees can be linked to PRs")
         validate_pr(args.pr)
+        if record.get("pr") != args.pr:
+            record.pop("pr_head", None)
         record["pr"] = args.pr
         return {"linked": args.path, "pr": args.pr}
+    if args.command == "migrate-pr-branch":
+        return migrate_pr_branch(state, owner, args)
     if args.command == "create-temp":
         return create_temp(state, owner, args.parent)
     if args.command == "evidence-preserved":
@@ -93,6 +105,8 @@ def execute(state, owner, args, payload):
 
 def main():
     args = parse_args()
+    if args.host == "antigravity" and args.command == "hook":
+        raise Protected("Antigravity requires explicit CLI operations and --session")
     if not cleanup_enabled() and args.command != "status":
         if args.command == "hook":
             sys.stdin.read()  # Drain the payload; nothing is recorded or deleted.

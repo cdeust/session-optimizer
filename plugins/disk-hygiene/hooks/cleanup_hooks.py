@@ -51,7 +51,7 @@ def acting_owner(state, owner, path, cwd):
     unknown owner is never acted for.
     """
     record = state.get(path) if path and path != "_ended" else None
-    if not record or record.get("owner") == owner:
+    if owner.startswith("antigravity:") or not record or record.get("owner") == owner:
         return owner
     if record.get("owner") not in state.get("_ended", {}):
         return owner

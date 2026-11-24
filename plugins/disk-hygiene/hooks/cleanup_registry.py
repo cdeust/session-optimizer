@@ -3,6 +3,7 @@
 # Source: disk-hygiene design: disk-hygiene atomic ledger protocol.
 import json
 import os
+import re
 import tempfile
 import time
 from contextlib import contextmanager
@@ -41,6 +42,13 @@ def valid_roots(roots):
     )
 
 
+def valid_oid(value):
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"(?:[a-f0-9]{40}|[a-f0-9]{64})", value) is not None
+    )
+
+
 def validate(state):
     if not isinstance(state, dict):
         raise Protected("registry must be an object")
@@ -66,6 +74,18 @@ def validate(state):
             isinstance(record.get(k), str) for k in ("repo", "branch")
         ):
             raise Protected("invalid worktree record")
+        if "pr_head" in record:
+            binding = record["pr_head"]
+            if (
+                record["kind"] != "worktree"
+                or not isinstance(binding, dict)
+                or not isinstance(binding.get("url"), str)
+                or binding["url"] != record.get("pr")
+                or not isinstance(binding.get("ref"), str)
+                or not re.fullmatch(r"refs/heads/.+", binding["ref"])
+                or not valid_oid(binding.get("sha"))
+            ):
+                raise Protected("invalid verified PR head")
 
 
 def acquire(handle):

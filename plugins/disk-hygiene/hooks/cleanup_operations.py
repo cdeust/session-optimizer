@@ -11,7 +11,7 @@ from pathlib import Path
 
 import cleanup_intake
 from cleanup_processes import no_open_files
-from cleanup_registry import Protected
+from cleanup_registry import Protected, valid_oid
 from durable_evidence import chain, entry, purge_target
 
 
@@ -250,9 +250,10 @@ def evidence_lost(record):
     return False
 
 
-def live_head(record):
+def pr_ref(record, expected):
     if not record.get("pr"):
         raise Protected("no PR linked yet")
+    validate_pr(record["pr"])
     result = json.loads(
         run(
             ["gh", "pr", "view", record["pr"], "--json", "headRefOid,headRefName,url"],
@@ -260,14 +261,87 @@ def live_head(record):
         )
     )
     if (
-        result.get("url") != record["pr"]
-        or "refs/heads/" + result.get("headRefName", "") != record["branch"]
+        not isinstance(result, dict)
+        or result.get("url") != record["pr"]
+        or not isinstance(result.get("headRefName"), str)
+        or "refs/heads/" + result.get("headRefName", "") != expected
     ):
         raise Protected("PR identity or branch does not match registration")
     sha = result.get("headRefOid", "")
-    if not re.fullmatch(r"[a-f0-9]{40,64}", sha):
+    if not valid_oid(sha):
         raise Protected("PR has no valid live head")
     return sha
+
+
+def live_head(record):
+    binding = record.get("pr_head")
+    if binding is None:
+        return pr_ref(record, record["branch"])
+    if binding["url"] != record["pr"]:
+        raise Protected("verified branch belongs to a different PR")
+    return pr_ref(record, binding["ref"])
+
+
+def verify_published(record, local, remote):
+    git(record["repo"], "merge-base", "--is-ancestor", local, remote)
+    if "pr_head" in record:
+        git(
+            record["repo"],
+            "merge-base",
+            "--is-ancestor",
+            record["pr_head"]["sha"],
+            remote,
+        )
+
+
+def migration_local_head(state, owner, path, pr):
+    record = owned(state, owner, path)
+    if record["kind"] != "worktree" or record.get("pending_branch"):
+        raise Protected("migration requires an existing linked worktree")
+    if record.get("pr") != pr:
+        raise Protected("migration requires the already linked PR URL")
+    validate_pr(pr)
+    tree = linked(record["repo"], path)
+    if tree["branch"] != record["branch"]:
+        raise Protected("worktree branch changed")
+    origin = git(record["repo"], "remote", "get-url", "origin")
+    github = re.fullmatch(
+        r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)"
+        r"([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?/?",
+        origin,
+    )
+    base = pr.removeprefix("https://github.com/").split("/pull/")[0]
+    if not github or github[1].lower() != base.lower():
+        raise Protected("linked PR repository does not match the worktree origin")
+    if git(path, "rev-parse", "--verify", "HEAD^{commit}") != tree["HEAD"]:
+        raise Protected("worktree HEAD changed during branch migration")
+    return tree["HEAD"]
+
+
+def migrate_pr_branch(state, owner, args):
+    local = migration_local_head(state, owner, args.path, args.pr)
+    record = state[args.path]
+    expected_ref = "refs/heads/" + args.pr_branch
+    git(record["repo"], "check-ref-format", expected_ref)
+    sha = pr_ref(record, expected_ref)
+    if sha != local:
+        raise Protected(
+            "push the local HEAD and wait for the linked PR to report the same SHA"
+        )
+    if (
+        pr_ref(record, expected_ref) != sha
+        or migration_local_head(state, owner, args.path, args.pr) != local
+    ):
+        raise Protected("head changed during branch migration")
+    binding = {"url": args.pr, "ref": expected_ref, "sha": sha}
+    if not args.dry_run:
+        record["pr_head"] = binding
+    return {
+        "path": args.path,
+        "local_ref": record["branch"],
+        "pr_head": binding,
+        "dry_run": args.dry_run,
+    }
 
 
 def check_tree(path, record):
@@ -301,7 +375,7 @@ def dispose_tree(path, record, dry_run):
             repo_url + ".git",
             "refs/pull/" + number + "/head",
         )
-    git(record["repo"], "merge-base", "--is-ancestor", local, remote)
+    verify_published(record, local, remote)
     # Recheck remote and local state after the network operation.
     if live_head(record) != remote or check_tree(path, record) != local:
         raise Protected("head changed during verification")
@@ -320,7 +394,7 @@ def dispose_branch(path, record, dry_run):
     if Path(path).exists() or any(t["worktree"] == path for t in trees(record["repo"])):
         raise Protected("removed worktree path was recreated")
     local, remote = record["evidence_head"], live_head(record)
-    git(record["repo"], "merge-base", "--is-ancestor", local, remote)
+    verify_published(record, local, remote)
     if dry_run:
         return "would remove pending local branch"
     branch = record["branch"].removeprefix("refs/heads/")

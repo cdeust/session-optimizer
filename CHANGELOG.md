@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- disk-hygiene supports explicit Antigravity session identities and verifies
+  a different head branch for an already linked PR with `migrate-pr-branch`.
+  The command records the PR URL, remote ref and verified commit while the
+  worktree keeps its registered local branch.
+
 ### Changed
 
 - `docs/agent-guidance.md` gains the section "Issues: no issue waits for the owner", the text of cdeust/Cortex#1009 word for word, and `CLAUDE.md` points to it (owner instruction of 12 November 2026, #112): an issue that asks a question is decided, the decision and its reason are written, and the work is delivered; `autopilot:hold` is kept for the irreversible, a missing access, a named open dependency and a routine's attempt cap. No other rule of the contract changes.
