@@ -71,6 +71,16 @@ class BranchMigrationTests(base.CleanupFixture):
         result = self.migrate()
         self.assertEqual(record, before)
         self.assertTrue(result["dry_run"])
+        self.assertEqual(
+            self.calls.count(
+                ["git", "-C", self.path, "rev-parse", "--verify", "HEAD^{commit}"]
+            ),
+            2,
+        )
+        self.assertEqual(
+            [call for call in self.calls if call[0] == "gh"],
+            [["gh", "pr", "view", self.pr, "--json", "headRefOid,headRefName,url"]] * 2,
+        )
         self.args.dry_run = False
         expected = {"url": self.pr, "ref": "refs/heads/fix/feature", "sha": self.head}
         self.assertEqual(
@@ -96,11 +106,14 @@ class BranchMigrationTests(base.CleanupFixture):
         self.refused("not owned", owner="codex:other")
         for change, reason in [
             ({"identity": [0, 0]}, "replaced"),
-            ({"kind": "temp"}, "existing linked worktree"),
-            ({"pending_branch": True}, "existing linked worktree"),
-            ({"pr": None}, "already linked"),
-            ({"pr": self.pr + "0"}, "already linked"),
-            ({"branch": "refs/heads/other"}, "branch changed"),
+            ({"kind": "temp"}, "^migration requires an existing linked worktree$"),
+            (
+                {"pending_branch": True},
+                "^migration requires an existing linked worktree$",
+            ),
+            ({"pr": None}, "^migration requires the already linked PR URL$"),
+            ({"pr": self.pr + "0"}, "^migration requires the already linked PR URL$"),
+            ({"branch": "refs/heads/other"}, "^worktree branch changed$"),
         ]:
             with self.subTest(change=change), patch.dict(self.state[self.path], change):
                 self.refused(reason)
@@ -116,7 +129,10 @@ class BranchMigrationTests(base.CleanupFixture):
             ({"url": self.pr + "0"}, "PR identity"),
             ({"headRefName": "other"}, "PR identity"),
             ({"headRefOid": "a" * 41}, "valid live head"),
-            ({"headRefOid": self.base}, "same SHA"),
+            (
+                {"headRefOid": self.base},
+                "^push the local HEAD and wait for the linked PR to report the same SHA$",
+            ),
         ]:
             with self.subTest(change=change), patch.dict(self.response, change):
                 self.refused(reason)
@@ -130,17 +146,17 @@ class BranchMigrationTests(base.CleanupFixture):
             "origin",
             "https://github.com/foreign/repo.git",
         )
-        self.refused("repository does not match")
+        self.refused("^linked PR repository does not match the worktree origin$")
         h.git(self.repo, "worktree", "lock", self.path)
         self.refused("unlocked linked")
 
     def test_change_between_remote_reads_does_not_commit(self):
         with patch.object(h, "pr_ref", side_effect=[self.head, self.base]):
-            self.refused("head changed")
+            self.refused("^head changed during branch migration$")
         with patch.object(
             h, "migration_local_head", side_effect=[self.head, self.base]
         ):
-            self.refused("head changed")
+            self.refused("^head changed during branch migration$")
 
     def test_remote_failure_and_inconsistent_git_metadata_preserve_binding(self):
         self.migrate()
@@ -152,7 +168,7 @@ class BranchMigrationTests(base.CleanupFixture):
                 self.refused("PR identity")
         previous = h.linked(self.repo, self.path)
         with patch.object(h, "linked", return_value={**previous, "HEAD": self.base}):
-            self.refused("worktree HEAD changed")
+            self.refused("^worktree HEAD changed during branch migration$")
         with patch.object(h, "run", side_effect=h.Protected("command unavailable")):
             self.refused("command unavailable")
 
@@ -219,11 +235,16 @@ class BranchMigrationTests(base.CleanupFixture):
         self.assertEqual(self.state[self.path]["pr_head"]["url"], self.pr)
         with (
             patch.dict(self.state[self.path], {"pr": self.pr + "1"}),
-            self.assertRaisesRegex(h.Protected, "different PR"),
+            self.assertRaisesRegex(
+                h.Protected, "^verified branch belongs to a different PR$"
+            ),
         ):
             h.live_head(self.state[self.path])
         self.args.pr += "1"
         self.migrate()
+        self.assertNotIn("pr_head", self.state[self.path])
+        self.args.pr = self.pr
+        self.assertEqual(self.migrate(), {"linked": self.path, "pr": self.pr})
         self.assertNotIn("pr_head", self.state[self.path])
 
     def test_invalid_persisted_binding_blocks_registry(self):
@@ -241,12 +262,12 @@ class BranchMigrationTests(base.CleanupFixture):
             with (
                 self.subTest(invalid=invalid),
                 patch.dict(record, {"pr_head": invalid}),
-                self.assertRaisesRegex(h.Protected, "invalid verified"),
+                self.assertRaisesRegex(h.Protected, "^invalid verified PR head$"),
             ):
                 validate(self.state)
         with (
             patch.dict(record, {"kind": "temp"}),
-            self.assertRaisesRegex(h.Protected, "invalid verified"),
+            self.assertRaisesRegex(h.Protected, "^invalid verified PR head$"),
         ):
             validate(self.state)
         for n in (40, 64):
@@ -287,7 +308,10 @@ def test_antigravity_requires_its_own_identity_and_has_no_native_hook(tmp_path):
     assert code == 1 and "explicit session" in result["protected"]
     for event in ("SessionStart", "PostToolUse", "Stop", "SessionEnd"):
         code, result = invoke("--session", "review", "hook", event)
-        assert code == 1 and "explicit CLI" in result["protected"]
+        assert code == 1
+        assert result == {
+            "protected": "Antigravity requires explicit CLI operations and --session"
+        }
     assert not state.exists()
     code, result = invoke(
         "--session", "review", "create-temp", "--parent", str(tmp_path)
@@ -324,3 +348,33 @@ def test_native_owner_and_unregistered_path_do_not_require_a_git_cwd(monkeypatch
     state = {"/owned": {"owner": owner}, "_ended": {owner: True}}
     assert acting_owner(state, owner, "/owned", "/outside-repo") == owner
     assert acting_owner(state, owner, "/unknown", "/outside-repo") == owner
+
+
+@pytest.mark.parametrize("missing", ["--path", "--pr", "--pr-branch"])
+def test_migration_requires_each_explicit_input(monkeypatch, capsys, missing):
+    inputs = {
+        "--path": "/example/worktree",
+        "--pr": "https://github.com/example/repo/pull/1",
+        "--pr-branch": "fix/feature",
+    }
+    del inputs[missing]
+    argv = [cli.__file__, "--host", "codex", "--session", "test", "migrate-pr-branch"]
+    for flag, value in inputs.items():
+        argv.extend([flag, value])
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as error:
+        cli.parse_args()
+    assert error.value.code == 2
+    assert missing in capsys.readouterr().err.rsplit("error:", 1)[-1]
+
+
+def test_cli_recognizes_only_supported_hosts(monkeypatch):
+    argv = [cli.__file__, "--host", "", "--session", "review", "status"]
+    monkeypatch.setattr(sys, "argv", argv)
+    for host in ("claude", "codex", "antigravity"):
+        argv[2] = host
+        assert cli.parse_args().host == host
+    argv[2] = "unregistered-host"
+    with pytest.raises(SystemExit) as error:
+        cli.parse_args()
+    assert error.value.code == 2
