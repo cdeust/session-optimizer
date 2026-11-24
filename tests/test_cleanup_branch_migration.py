@@ -7,9 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import test_worktree_cleanup as base
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[1] / "plugins/disk-hygiene/hooks")
+)
 import cleanup_operations as h
 import disk_hygiene as cli
+import test_worktree_cleanup as base
 from cleanup_hooks import acting_owner
 from cleanup_registry import valid_oid, validate
 
@@ -206,9 +209,11 @@ class BranchMigrationTests(base.CleanupFixture):
         self.args.command = "link-pr"
         self.migrate()
         self.assertEqual(self.state[self.path]["pr_head"]["url"], self.pr)
-        with patch.dict(self.state[self.path], {"pr": self.pr + "1"}):
-            with self.assertRaisesRegex(h.Protected, "different PR"):
-                h.live_head(self.state[self.path])
+        with (
+            patch.dict(self.state[self.path], {"pr": self.pr + "1"}),
+            self.assertRaisesRegex(h.Protected, "different PR"),
+        ):
+            h.live_head(self.state[self.path])
         self.args.pr += "1"
         self.migrate()
         self.assertNotIn("pr_head", self.state[self.path])
