@@ -7,9 +7,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "plugins/disk-hygiene/hooks")
 )
+import cleanup_hooks
 import cleanup_operations as h
 import disk_hygiene as cli
 import test_worktree_cleanup as base
@@ -104,6 +107,11 @@ class BranchMigrationTests(base.CleanupFixture):
         self.assertFalse(any(cmd[0] == "gh" for cmd in self.calls))
 
     def test_pr_url_branch_sha_local_origin_and_git_lock_must_match(self):
+        h.git(
+            self.repo, "remote", "set-url", "origin", "git@github.com:Example/RePo.git"
+        )
+        self.args.dry_run = True
+        self.assertEqual(self.migrate()["pr_head"]["sha"], self.head)
         for change, reason in [
             ({"url": self.pr + "0"}, "PR identity"),
             ({"headRefName": "other"}, "PR identity"),
@@ -298,3 +306,21 @@ def test_antigravity_requires_its_own_identity_and_has_no_native_hook(tmp_path):
         acting_owner(ended, "antigravity:review", path, str(tmp_path))
         == "antigravity:review"
     )
+
+
+def test_cli_requires_an_explicit_host_even_with_a_session(monkeypatch):
+    monkeypatch.setattr(sys, "argv", [cli.__file__, "--session", "review", "status"])
+    with pytest.raises(SystemExit) as error:
+        cli.parse_args()
+    assert error.value.code == 2
+
+
+def test_native_owner_and_unregistered_path_do_not_require_a_git_cwd(monkeypatch):
+    def unexpected_scope(cwd):
+        pytest.fail(f"unnecessary Git scope lookup at {cwd}")
+
+    monkeypatch.setattr(cleanup_hooks, "scope", unexpected_scope)
+    owner = "codex:review"
+    state = {"/owned": {"owner": owner}, "_ended": {owner: True}}
+    assert acting_owner(state, owner, "/owned", "/outside-repo") == owner
+    assert acting_owner(state, owner, "/unknown", "/outside-repo") == owner

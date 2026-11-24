@@ -264,7 +264,7 @@ def pr_ref(record, expected):
         not isinstance(result, dict)
         or result.get("url") != record["pr"]
         or not isinstance(result.get("headRefName"), str)
-        or "refs/heads/" + result.get("headRefName", "") != expected
+        or "refs/heads/" + result["headRefName"] != expected
     ):
         raise Protected("PR identity or branch does not match registration")
     sha = result.get("headRefOid", "")
