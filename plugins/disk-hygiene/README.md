@@ -59,6 +59,32 @@ protected: use a registered linked worktree for review checkouts. `status` lists
 the current owner's paths. The SessionStart hook prints the exact command for the
 installed copy.
 
+Antigravity sessions use `--host antigravity --session <session-id>` for explicit
+CLI operations. Supply the session ID for each call. This host has no native
+cleanup hook.
+
+### A PR with a different head branch
+
+After pushing, the registered owner can bind the local branch to the head
+branch of its already linked GitHub PR. Run the following when the worktree's
+HEAD and the PR's reported head SHA agree. Staged changes can stay in place.
+
+```sh
+python3 "$CLEANUP" --host codex --session "$CODEX_THREAD_ID" migrate-pr-branch \
+  --path /abs/main/.claude/worktrees/task --pr https://github.com/owner/repo/pull/123 \
+  --pr-branch fix/task --dry-run
+```
+
+Repeat without `--dry-run` to save the binding. Both calls report the local ref,
+the PR URL, the PR head ref and the observed SHA. Migration checks the recorded
+owner, directory identity, linked worktree, local ref and GitHub origin. It
+repeats the local and remote head checks before saving. Future disposal checks
+the PR head branch while Git verifies the registered local branch. Both the
+local commit and the commit saved during migration must still be reachable
+from the PR head. Existing
+evidence and its recorded commit retain their original meaning. After another
+commit, preserve current evidence before disposing of the worktree.
+
 ### Evidence
 
 Evidence is a file the session keeps after the worktree is gone, so it must

@@ -36,7 +36,9 @@ for path in sys.argv[1:]:
     sys.path.insert(0, directory)
     try:
         spec = importlib.util.spec_from_file_location("_py39_floor_probe", path)
-        spec.loader.exec_module(importlib.util.module_from_spec(spec))
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
     except BaseException:
         failed += 1
         last = traceback.format_exc().strip().splitlines()[-1]
